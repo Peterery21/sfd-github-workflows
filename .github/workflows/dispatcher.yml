@@ -93,7 +93,8 @@ jobs:
                   if value is None:
                       continue  # Skip absent optional fields — lets downstream workflow_call defaults engage
                   delimiter = uuid.uuid4().hex
-                  out.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")
+                  str_value = str(value).lower() if isinstance(value, bool) else str(value)
+                  out.write(f"{key}<<{delimiter}\n{str_value}\n{delimiter}\n")
           EOF
 
   java:
