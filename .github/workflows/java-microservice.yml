@@ -106,10 +106,43 @@ jobs:
             '</settings>' > ~/.m2/settings.xml
           echo "settings.xml written"
           cat ~/.m2/settings.xml | sed 's|<password>.*</password>|<password>***</password>|g'
-          # Remove internal artifacts from local repo to force fresh download from Nexus
-          rm -rf ~/.m2/repository/com/kodzotech \
-                 ~/.m2/repository/com/evoltica \
-                 ~/.m2/repository/com/synapsesit 2>/dev/null || true
+
+      - name: Install internal SNAPSHOT libraries from VPS
+        run: |
+          mkdir -p /tmp/jars ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+          JENKINS="/var/lib/jenkins"
+
+          copy_and_install() {
+            local NAME="$1" GROUP="$2" ARTIFACT="$3" VERSION="$4"
+            local REMOTE=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+              "find $JENKINS/jobs -name '${ARTIFACT}-${VERSION}.jar' 2>/dev/null | grep -v sources | tail -1" 2>/dev/null)
+            if [ -n "$REMOTE" ]; then
+              scp -q -i ~/.ssh/deploy_key "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${REMOTE}" "/tmp/jars/${NAME}.jar" 2>/dev/null
+              mvn install:install-file \
+                -Dfile="/tmp/jars/${NAME}.jar" \
+                -DgroupId="$GROUP" \
+                -DartifactId="$ARTIFACT" \
+                -Dversion="$VERSION" \
+                -Dpackaging=jar \
+                -DgeneratePom=true \
+                -q 2>/dev/null && echo "$ARTIFACT:$VERSION installed" || echo "$ARTIFACT:$VERSION install failed"
+            else
+              echo "$ARTIFACT:$VERSION not found on VPS, will resolve from Nexus"
+            fi
+          }
+
+          copy_and_install "security-oauth2"          "com.kodzotech" "security-oauth2"          "3.7.0-SNAPSHOT"
+          copy_and_install "notification-api"         "com.kodzotech" "notification-api"         "2.11.0-SNAPSHOT"
+          copy_and_install "planificateur-api"        "com.kodzotech" "planificateur-api"        "0.0.3-SNAPSHOT"
+          copy_and_install "number-generator-api"     "com.kodzotech" "number-generator-api"     "0.0.1-SNAPSHOT"
+          copy_and_install "activity-tracking-starter" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT"
+          copy_and_install "sfd-demo-data"            "com.synapsesit" "sfd-demo-data"            "1.0.0-SNAPSHOT"
+          copy_and_install "sfd-report-api"           "com.synapsesit" "sfd-report-api"           "1.0.0-SNAPSHOT"
+          copy_and_install "sfd-integration-api"      "com.synapsesit" "sfd-integration-api"      "1.0.0-SNAPSHOT"
 
       - name: Determine version
         id: version
@@ -128,7 +161,7 @@ jobs:
         env:
           NEXUS_USER: ${{ secrets.NEXUS_USER }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
-        run: mvn ${{ inputs.maven-goals }} -U --no-transfer-progress 2>&1 | tail -50
+        run: mvn ${{ inputs.maven-goals }} -U --no-transfer-progress
 
       - name: SonarQube Analysis
         if: ${{ inputs.sonar-enabled }}
