@@ -184,7 +184,7 @@ Peterery21/sfd-admin-angular:
   dev-port: 4630
   prod-port: 4631
   release-branch: master
-  e2e-enabled: false
+  e2e-enabled: true
   e2e-command: npm run e2e:chromium
   json-server-port: 3000
 

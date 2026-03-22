@@ -93,6 +93,8 @@ jobs:
 
       - name: Build Angular
         run: npx ng build --configuration ${{ steps.version.outputs.ng-config }}
+        env:
+          NODE_OPTIONS: --max_old_space_size=4096
 
       - name: Set image tags
         id: tag
@@ -290,6 +292,9 @@ jobs:
           else
             echo "url=http://${{ secrets.VPS_HOST }}:${PORT}" >> $GITHUB_OUTPUT
           fi
+
+      - name: Create .auth directory
+        run: mkdir -p .auth
 
       - name: Run E2E tests
         run: ${{ inputs.e2e-command }}
