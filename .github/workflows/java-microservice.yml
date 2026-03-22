@@ -107,25 +107,6 @@ jobs:
           echo "settings.xml written"
           cat ~/.m2/settings.xml | sed 's|<password>.*</password>|<password>***</password>|g'
 
-      - name: Build SFD internal libraries from source
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
-        continue-on-error: true
-        run: |
-          # Build SFD libs from GitHub source (always up-to-date, proper transitive deps)
-          # Requires GH_PAT org secret with read:org + contents:read scope
-          build_lib() {
-            local REPO="$1" DIR="/tmp/libs/$2"
-            echo "Building $REPO..."
-            git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/Peterery21/${REPO}.git" "$DIR" 2>&1 | tail -1 || { echo "$REPO clone failed, will use VPS JAR"; return 0; }
-            mvn -f "$DIR/pom.xml" install -DskipTests -q --no-transfer-progress \
-              && echo "$REPO built OK" || echo "$REPO build failed"
-          }
-          mkdir -p /tmp/libs
-          build_lib "sfd-report-api"      "sfd-report-api"
-          build_lib "sfd-integration-api" "sfd-integration-api"
-          build_lib "sfd-demo-data"       "sfd-demo-data"
-
       - name: Install internal SNAPSHOT libraries from VPS
         run: |
           mkdir -p /tmp/jars ~/.ssh
@@ -191,10 +172,30 @@ jobs:
           copy_and_install "number-generator-api"     "com.kodzotech" "number-generator-api"     "0.0.1-SNAPSHOT"
           copy_and_install "realtime-ws"               "com.evoltica" "realtime-ws"               "0.0.1-SNAPSHOT"
           copy_and_install "activity-tracking-starter" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT"
-          # sfd-report-api, sfd-integration-api, sfd-demo-data: try VPS as fallback (if build-from-source step above failed)
+          # sfd-report-api, sfd-integration-api, sfd-demo-data: install from VPS as fallback only
           copy_and_install "sfd-demo-data"            "com.synapsesit" "sfd-demo-data"            "1.0.0-SNAPSHOT"
-          copy_and_install "sfd-report-api"           "com.synapsesit" "sfd-report-api"           "1.0.0-SNAPSHOT"
           copy_and_install "sfd-integration-api"      "com.synapsesit" "sfd-integration-api"      "1.0.0-SNAPSHOT"
+          copy_and_install "sfd-report-api"           "com.synapsesit" "sfd-report-api"           "1.0.0-SNAPSHOT"
+
+      - name: Build SFD internal libraries from source (override VPS)
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        continue-on-error: true
+        run: |
+          # Build latest SFD libs from GitHub source, overriding potentially stale VPS JARs
+          # Build in dependency order: sfd-integration-api first, then sfd-report-api
+          build_lib() {
+            local REPO="$1" DIR="/tmp/libs/$2"
+            echo "Building $REPO..."
+            git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/Peterery21/${REPO}.git" "$DIR" 2>&1 | tail -1 \
+              || { echo "$REPO clone failed — using VPS JAR fallback"; return 0; }
+            mvn -f "$DIR/pom.xml" install -DskipTests -q --no-transfer-progress \
+              && echo "$REPO built from source OK" || echo "$REPO source build failed — using VPS JAR fallback"
+          }
+          mkdir -p /tmp/libs
+          build_lib "sfd-integration-api" "sfd-integration-api"
+          build_lib "sfd-report-api"      "sfd-report-api"
+          build_lib "sfd-demo-data"       "sfd-demo-data"
 
       - name: Determine version
         id: version
