@@ -388,6 +388,17 @@ jobs:
             docker stop "${CONTAINER}" 2>/dev/null || true
             docker rm "${CONTAINER}" 2>/dev/null || true
 
+            # Discover Docker network (use same network as sql-server-dev if available)
+            DOCKER_NETWORK=$(docker inspect sql-server-dev --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | awk '{print $1}')
+            if [ -z "$DOCKER_NETWORK" ]; then
+              # Fallback: try any sfd-related container
+              DOCKER_NETWORK=$(docker inspect sql-server --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | awk '{print $1}')
+            fi
+            if [ -z "$DOCKER_NETWORK" ]; then
+              DOCKER_NETWORK="bridge"
+            fi
+            echo "Using Docker network: ${DOCKER_NETWORK}"
+
             # Démarrer le nouveau container
             docker run -d \
               --name "${CONTAINER}" \
@@ -395,6 +406,7 @@ jobs:
               --memory="${{ inputs.memory-limit }}" \
               --memory-swap="${{ inputs.memory-limit }}" \
               --cpus=2 \
+              --network="${DOCKER_NETWORK}" \
               -p "${PORT}" \
               -e SPRING_PROFILES_ACTIVE="${PROFILE}" \
               -e UPLOAD_FOLDER="${{ inputs.upload-folder }}" \
