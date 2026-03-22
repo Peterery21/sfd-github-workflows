@@ -1,7 +1,7 @@
 name: Deploy Missing Artifacts to Nexus
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 jobs:
   deploy:
