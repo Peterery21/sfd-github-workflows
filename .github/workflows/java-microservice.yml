@@ -331,18 +331,18 @@ jobs:
 
             # Sauvegarder TOUS les paramètres nécessaires au rollback
             # (Jenkins rerun avec exactement la même config: env, ports, volumes, network, extraArgs)
-            cat > /tmp/rollback_${CONTAINER}.env << EOF
-            OLD_IMAGE=${OLD_IMAGE}
-            PROFILE=${PROFILE}
-            PORT=${PORT}
-            APP_NAME=${APP_NAME}
-            JVM_OPTS=${JVM_OPTS}
-            MEMORY_LIMIT=${MEMORY_LIMIT}
-            UPLOAD_FOLDER=${UPLOAD_FOLDER}
-            APP_DIR=${APP_DIR}
-            LOG_DIR=${LOG_DIR}
-            DOCKER_NETWORK=${DOCKER_NETWORK}
-EOF
+            {
+              echo "OLD_IMAGE=${OLD_IMAGE}"
+              echo "PROFILE=${PROFILE}"
+              echo "PORT=${PORT}"
+              echo "APP_NAME=${APP_NAME}"
+              echo "JVM_OPTS=${JVM_OPTS}"
+              echo "MEMORY_LIMIT=${MEMORY_LIMIT}"
+              echo "UPLOAD_FOLDER=${UPLOAD_FOLDER}"
+              echo "APP_DIR=${APP_DIR}"
+              echo "LOG_DIR=${LOG_DIR}"
+              echo "DOCKER_NETWORK=${DOCKER_NETWORK}"
+            } > /tmp/rollback_${CONTAINER}.env
 
             # Arrêter et supprimer l'ancien container
             docker stop "${CONTAINER}" 2>/dev/null || true
@@ -626,18 +626,18 @@ EOF
               2>/dev/null | awk '{print $1}')
             [ -z "$DOCKER_NETWORK" ] && DOCKER_NETWORK="bridge"
 
-            cat > /tmp/rollback_${CONTAINER}.env << EOF
-            OLD_IMAGE=${OLD_IMAGE}
-            PROFILE=prod
-            PORT=${PORT}
-            APP_NAME=${APP_NAME}
-            JVM_OPTS=${JVM_OPTS}
-            MEMORY_LIMIT=${MEMORY_LIMIT}
-            UPLOAD_FOLDER=${UPLOAD_FOLDER}
-            APP_DIR=${APP_DIR}
-            LOG_DIR=${LOG_DIR}
-            DOCKER_NETWORK=${DOCKER_NETWORK}
-EOF
+            {
+              echo "OLD_IMAGE=${OLD_IMAGE}"
+              echo "PROFILE=prod"
+              echo "PORT=${PORT}"
+              echo "APP_NAME=${APP_NAME}"
+              echo "JVM_OPTS=${JVM_OPTS}"
+              echo "MEMORY_LIMIT=${MEMORY_LIMIT}"
+              echo "UPLOAD_FOLDER=${UPLOAD_FOLDER}"
+              echo "APP_DIR=${APP_DIR}"
+              echo "LOG_DIR=${LOG_DIR}"
+              echo "DOCKER_NETWORK=${DOCKER_NETWORK}"
+            } > /tmp/rollback_${CONTAINER}.env
 
             docker stop "${CONTAINER}" 2>/dev/null || true
             docker rm "${CONTAINER}" 2>/dev/null || true
