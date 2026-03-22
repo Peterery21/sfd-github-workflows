@@ -1,6 +1,7 @@
-# Template ci.yml pour microservices Java Spring Boot et frontends Angular
-# Copier dans .github/workflows/ci.yml de chaque repo
+# Template ci.yml pour microservices Java Spring Boot ET frontends Angular
+# Copier IDENTIQUE dans .github/workflows/ci.yml de chaque repo Java ou Angular
 # Aucune configuration nécessaire — tout est centralisé dans services-registry.yml
+# Le dispatcher.yml lit services-registry.yml pour router vers java-microservice.yml ou angular-pipeline.yml
 
 name: CI/CD Pipeline
 on:
