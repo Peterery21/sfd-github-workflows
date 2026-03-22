@@ -59,23 +59,41 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python3 << 'EOF'
-          import yaml, os, sys
+          import yaml, os, sys, uuid
 
           with open('services-registry.yml') as f:
               registry = yaml.safe_load(f)
 
           repo = os.environ['GITHUB_REPOSITORY']
-          # Skip _meta key
-          entry = {k: v for k, v in registry.items() if not k.startswith('_')}.get(repo)
+          all_entries = {k: v for k, v in registry.items() if not k.startswith('_')}
+          entry = all_entries.get(repo)
           if not entry:
               print(f"::error::Repository {repo} not found in services-registry.yml")
+              print(f"::error::Available repos: {list(all_entries.keys())}")
               sys.exit(1)
 
+          template = entry.get('template')
+          print(f"::notice::Resolved {repo} → template={template}")
+
+          # Validate required fields per template
+          REQUIRED = {
+              'java': ['template', 'app-name', 'dev-port', 'prod-port', 'internal-port', 'health-path', 'release-branch'],
+              'angular': ['template', 'app-name', 'dev-port', 'prod-port', 'release-branch', 'e2e-enabled'],
+              'maven-library': ['template', 'app-name', 'sonar-enabled', 'nexus-deploy'],
+          }
+          required_fields = REQUIRED.get(template, [])
+          missing = [f for f in required_fields if entry.get(f) is None]
+          if missing:
+              print(f"::error::Missing required fields for template '{template}': {missing}")
+              sys.exit(1)
+
+          # Write to GITHUB_OUTPUT using heredoc delimiter (safe for all values)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
               for key, value in entry.items():
                   if value is None:
-                      value = ''
-                  out.write(f"{key}={value}\n")
+                      continue  # Skip absent optional fields — lets downstream workflow_call defaults engage
+                  delimiter = uuid.uuid4().hex
+                  out.write(f"{key}<<{delimiter}\n{value}\n{delimiter}\n")
           EOF
 
   java:
