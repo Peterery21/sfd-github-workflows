@@ -41,6 +41,7 @@ jobs:
             JAR=$(find_jar "planificateur-api" "0.0.3-SNAPSHOT"); echo "planificateur-api=$JAR"
             JAR=$(find_jar "number-generator-api" "0.0.1-SNAPSHOT"); echo "number-generator-api=$JAR"
             JAR=$(find "$JENKINS" -name "activity-tracking-starter-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1); echo "activity-tracking-starter=$JAR"
+            JAR=$(find "$JENKINS/.m2/repository" -path "*/realtime-ws/0.0.1-SNAPSHOT*" -name "*.jar" 2>/dev/null | grep -v sources | xargs ls -t 2>/dev/null | head -1); echo "realtime-ws=$JAR"
             JAR=$(find "$JENKINS" -name "sfd-demo-data-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1); echo "sfd-demo-data=$JAR"
             JAR=$(find "$JENKINS" -name "sfd-report-api-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1); echo "sfd-report-api=$JAR"
             JAR=$(find "$JENKINS" -name "sfd-integration-api-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1); echo "sfd-integration-api=$JAR"
@@ -82,6 +83,10 @@ jobs:
           ACT=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             "find $JENKINS -name 'activity-tracking-starter-1.0.0-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
           copy_jar "activity-tracking-starter-1.0.0-SNAPSHOT" "$ACT"
+
+          RWS=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "find $JENKINS/.m2/repository -path '*/realtime-ws/0.0.1-SNAPSHOT*' -name '*.jar' 2>/dev/null | grep -v sources | xargs ls -t 2>/dev/null | head -1")
+          copy_jar "realtime-ws-0.0.1-SNAPSHOT" "$RWS"
 
           DEMO=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             "find $JENKINS -name 'sfd-demo-data-1.0.0-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
@@ -143,6 +148,7 @@ jobs:
 
           echo "=== com.evoltica ==="
           deploy "activity-tracking-starter-1.0.0-SNAPSHOT" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT"
+          deploy "realtime-ws-0.0.1-SNAPSHOT"                "com.evoltica" "realtime-ws"                "0.0.1-SNAPSHOT"
 
           echo "=== com.synapsesit ==="
           deploy "sfd-demo-data-1.0.0-SNAPSHOT"      "com.synapsesit" "sfd-demo-data"      "1.0.0-SNAPSHOT"

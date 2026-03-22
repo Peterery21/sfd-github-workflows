@@ -125,7 +125,7 @@ jobs:
           mkdir -p /tmp/jars ~/.ssh
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
           JENKINS="/var/lib/jenkins"
 
@@ -148,9 +148,9 @@ jobs:
               "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.pom' 2>/dev/null | grep -v sources | tail -1" 2>/dev/null)
 
             if [ -z "$REMOTE_JAR" ]; then
-              # Also try .m2 for the JAR (timestamped name)
+              # Also try .m2 for the JAR (newest by modification time)
               REMOTE_JAR=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-                "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.jar' 2>/dev/null | grep -v sources | tail -1" 2>/dev/null)
+                "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.jar' 2>/dev/null | grep -v sources | xargs ls -t 2>/dev/null | head -1" 2>/dev/null)
             fi
 
             if [ -n "$REMOTE_JAR" ]; then
@@ -233,6 +233,8 @@ jobs:
 
           mkdir -p /tmp/libs
           # Build common libs from source (may have newer version than VPS JARs)
+          # Build common-security-oauth2 from source (pulls correct realtime-ws from Nexus)
+          build_lib_as_version "common-security-oauth2" "common-security-oauth2" "3.7.0-SNAPSHOT"
           build_lib_as_version "common-activity-tracking" "common-activity-tracking" "1.0.0-SNAPSHOT"
           # Build SFD libs in dep order
           build_lib "sfd-integration-api" "sfd-integration-api"
@@ -350,7 +352,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Deploy container
         run: |
