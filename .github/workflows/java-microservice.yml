@@ -105,6 +105,7 @@ jobs:
             '  </servers>' \
             '</settings>' > ~/.m2/settings.xml
           echo "settings.xml written"
+          cat ~/.m2/settings.xml | sed 's|<password>.*</password>|<password>***</password>|g'
 
       - name: Determine version
         id: version
