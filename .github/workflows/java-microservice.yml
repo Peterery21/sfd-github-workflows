@@ -106,6 +106,9 @@ jobs:
             '</settings>' > ~/.m2/settings.xml
           echo "settings.xml written"
           cat ~/.m2/settings.xml | sed 's|<password>.*</password>|<password>***</password>|g'
+          echo "Testing Nexus connectivity..."
+          curl -s -o /dev/null -w "HTTP %{http_code}" -u "${NEXUS_USER}:${NEXUS_PASSWORD}" \
+            "${NEXUS_URL}/repository/maven-public/com/kodzotech/security-oauth2/3.7.0-SNAPSHOT/maven-metadata.xml" || echo "CURL FAILED"
 
       - name: Determine version
         id: version
