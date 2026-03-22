@@ -20,97 +20,133 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Upload missing SNAPSHOT JARs to Nexus via mvn deploy:deploy-file
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      - name: Find JAR paths on VPS
         run: |
           ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} /bin/bash << 'ENDSSH'
-            NEXUS="https://nexus.evolticatechnologies.com"
-            NEXUS_USER="admin"
-            NEXUS_PASS="motdepasse"
             JENKINS="/var/lib/jenkins"
-
-            # Use mvn deploy:deploy-file to properly handle SNAPSHOT metadata
-            MVN=$(which mvn 2>/dev/null || ls /var/lib/jenkins/tools/hudson.tasks.Maven_MavenInstallation/*/bin/mvn 2>/dev/null | head -1)
-            echo "Maven: $MVN"
-
-            deploy_artifact() {
-              local JAR_FILE="$1"
-              local GROUP_ID="$2"
-              local ARTIFACT_ID="$3"
-              local VERSION="$4"
-
-              echo "==> $ARTIFACT_ID:$VERSION ($JAR_FILE)"
-              "$MVN" deploy:deploy-file \
-                -Durl="$NEXUS/repository/maven-snapshots/" \
-                -DrepositoryId=nexus-snapshots \
-                -Dfile="$JAR_FILE" \
-                -DgroupId="$GROUP_ID" \
-                -DartifactId="$ARTIFACT_ID" \
-                -Dversion="$VERSION" \
-                -Dpackaging=jar \
-                -DgeneratePom=true \
-                -s /var/lib/jenkins/.m2/settings.xml \
-                -q 2>&1 | tail -5 && echo "    OK" || echo "    FAILED"
-            }
-
-            # Write settings.xml with Nexus credentials
-            mkdir -p /tmp/nexus-deploy
-            printf '%s\n' \
-              '<settings>' \
-              '  <servers>' \
-              "    <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASS}</password></server>" \
-              '  </servers>' \
-              '</settings>' > /tmp/nexus-settings.xml
 
             find_jar() {
               find "$JENKINS/jobs" -name "${1}-${2}.jar" 2>/dev/null | grep -v sources | grep -v javadoc | tail -1
             }
 
-            echo "=== com.kodzotech ==="
-            JAR=$(find_jar "security-oauth2" "3.7.0-SNAPSHOT")
-            [ -n "$JAR" ] && "$MVN" deploy:deploy-file \
-              -Durl="$NEXUS/repository/maven-snapshots/" \
-              -DrepositoryId=nexus-snapshots \
-              -Dfile="$JAR" -DgroupId="com.kodzotech" -DartifactId="security-oauth2" -Dversion="3.7.0-SNAPSHOT" \
-              -Dpackaging=jar -DgeneratePom=true -s /tmp/nexus-settings.xml -q && echo "security-oauth2 OK" || echo "security-oauth2 FAILED"
+            echo "=== Finding JARs ==="
+            JAR=$(find_jar "security-oauth2" "3.7.0-SNAPSHOT"); echo "security-oauth2=$JAR"
+            JAR=$(find_jar "notification-api" "2.11.0-SNAPSHOT"); echo "notification-api=$JAR"
+            JAR=$(find_jar "planificateur-api" "0.0.3-SNAPSHOT"); echo "planificateur-api=$JAR"
+            JAR=$(find_jar "number-generator-api" "0.0.1-SNAPSHOT"); echo "number-generator-api=$JAR"
+            JAR=$(find "$JENKINS" -name "activity-tracking-starter-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1); echo "activity-tracking-starter=$JAR"
+            JAR=$(find "$JENKINS" -name "sfd-demo-data-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1); echo "sfd-demo-data=$JAR"
+            JAR=$(find "$JENKINS" -name "sfd-report-api-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1); echo "sfd-report-api=$JAR"
+            JAR=$(find "$JENKINS" -name "sfd-integration-api-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1); echo "sfd-integration-api=$JAR"
+          ENDSSH
 
-            JAR=$(find_jar "notification-api" "2.11.0-SNAPSHOT")
-            [ -n "$JAR" ] && "$MVN" deploy:deploy-file \
-              -Durl="$NEXUS/repository/maven-snapshots/" \
-              -DrepositoryId=nexus-snapshots \
-              -Dfile="$JAR" -DgroupId="com.kodzotech" -DartifactId="notification-api" -Dversion="2.11.0-SNAPSHOT" \
-              -Dpackaging=jar -DgeneratePom=true -s /tmp/nexus-settings.xml -q && echo "notification-api OK" || echo "notification-api FAILED"
+      - name: Copy JARs from VPS to runner
+        run: |
+          mkdir -p /tmp/jars
 
-            JAR=$(find_jar "planificateur-api" "0.0.3-SNAPSHOT")
-            [ -n "$JAR" ] && "$MVN" deploy:deploy-file \
-              -Durl="$NEXUS/repository/maven-snapshots/" \
-              -DrepositoryId=nexus-snapshots \
-              -Dfile="$JAR" -DgroupId="com.kodzotech" -DartifactId="planificateur-api" -Dversion="0.0.3-SNAPSHOT" \
-              -Dpackaging=jar -DgeneratePom=true -s /tmp/nexus-settings.xml -q && echo "planificateur-api OK" || echo "planificateur-api FAILED"
+          copy_jar() {
+            local NAME="$1"
+            local REMOTE_PATH="$2"
+            if [ -n "$REMOTE_PATH" ]; then
+              scp -i ~/.ssh/deploy_key "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${REMOTE_PATH}" "/tmp/jars/${NAME}.jar" 2>/dev/null \
+                && echo "Copied $NAME" || echo "Failed to copy $NAME"
+            else
+              echo "JAR not found for $NAME"
+            fi
+          }
 
-            JAR=$(find_jar "number-generator-api" "0.0.1-SNAPSHOT")
-            [ -n "$JAR" ] && "$MVN" deploy:deploy-file \
-              -Durl="$NEXUS/repository/maven-snapshots/" \
-              -DrepositoryId=nexus-snapshots \
-              -Dfile="$JAR" -DgroupId="com.kodzotech" -DartifactId="number-generator-api" -Dversion="0.0.1-SNAPSHOT" \
-              -Dpackaging=jar -DgeneratePom=true -s /tmp/nexus-settings.xml -q && echo "number-generator-api OK" || echo "number-generator-api FAILED"
+          JENKINS="/var/lib/jenkins"
 
-            echo "=== com.evoltica ==="
-            JAR=$(find "$JENKINS" -name "activity-tracking-starter-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1)
-            [ -n "$JAR" ] && "$MVN" deploy:deploy-file \
-              -Durl="$NEXUS/repository/maven-snapshots/" \
-              -DrepositoryId=nexus-snapshots \
-              -Dfile="$JAR" -DgroupId="com.evoltica" -DartifactId="activity-tracking-starter" -Dversion="1.0.0-SNAPSHOT" \
-              -Dpackaging=jar -DgeneratePom=true -s /tmp/nexus-settings.xml -q && echo "activity-tracking-starter OK" || echo "activity-tracking-starter FAILED"
+          SEC=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "find $JENKINS/jobs -name 'security-oauth2-3.7.0-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
+          copy_jar "security-oauth2-3.7.0-SNAPSHOT" "$SEC"
 
-            echo "=== com.synapsesit ==="
-            for ARTIFACT in "sfd-demo-data" "sfd-report-api" "sfd-integration-api"; do
-              JAR=$(find "$JENKINS" -name "${ARTIFACT}-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1)
-              [ -n "$JAR" ] && "$MVN" deploy:deploy-file \
+          NOTIF=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "find $JENKINS/jobs -name 'notification-api-2.11.0-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
+          copy_jar "notification-api-2.11.0-SNAPSHOT" "$NOTIF"
+
+          PLAN=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "find $JENKINS/jobs -name 'planificateur-api-0.0.3-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
+          copy_jar "planificateur-api-0.0.3-SNAPSHOT" "$PLAN"
+
+          NUM=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "find $JENKINS/jobs -name 'number-generator-api-0.0.1-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
+          copy_jar "number-generator-api-0.0.1-SNAPSHOT" "$NUM"
+
+          ACT=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "find $JENKINS -name 'activity-tracking-starter-1.0.0-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
+          copy_jar "activity-tracking-starter-1.0.0-SNAPSHOT" "$ACT"
+
+          DEMO=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "find $JENKINS -name 'sfd-demo-data-1.0.0-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
+          copy_jar "sfd-demo-data-1.0.0-SNAPSHOT" "$DEMO"
+
+          RPT=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "find $JENKINS -name 'sfd-report-api-1.0.0-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
+          copy_jar "sfd-report-api-1.0.0-SNAPSHOT" "$RPT"
+
+          INT=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "find $JENKINS -name 'sfd-integration-api-1.0.0-SNAPSHOT.jar' 2>/dev/null | grep -v sources | tail -1")
+          copy_jar "sfd-integration-api-1.0.0-SNAPSHOT" "$INT"
+
+          echo "=== JARs available ==="
+          ls -lh /tmp/jars/
+
+      - name: Write Maven settings.xml
+        run: |
+          mkdir -p ~/.m2
+          printf '%s\n' \
+            '<settings>' \
+            '  <servers>' \
+            "    <server><id>nexus-snapshots</id><username>admin</username><password>motdepasse</password></server>" \
+            '  </servers>' \
+            '</settings>' > ~/.m2/settings.xml
+
+      - name: Deploy JARs to Nexus
+        if: ${{ !inputs.dry_run }}
+        run: |
+          NEXUS="https://nexus.evolticatechnologies.com"
+
+          deploy() {
+            local JAR="/tmp/jars/${1}.jar"
+            local GROUP="$2"
+            local ARTIFACT="$3"
+            local VERSION="$4"
+            if [ -f "$JAR" ]; then
+              mvn deploy:deploy-file \
                 -Durl="$NEXUS/repository/maven-snapshots/" \
                 -DrepositoryId=nexus-snapshots \
-                -Dfile="$JAR" -DgroupId="com.synapsesit" -DartifactId="$ARTIFACT" -Dversion="1.0.0-SNAPSHOT" \
-                -Dpackaging=jar -DgeneratePom=true -s /tmp/nexus-settings.xml -q && echo "$ARTIFACT OK" || echo "$ARTIFACT FAILED"
-            done
+                -Dfile="$JAR" \
+                -DgroupId="$GROUP" \
+                -DartifactId="$ARTIFACT" \
+                -Dversion="$VERSION" \
+                -Dpackaging=jar \
+                -DgeneratePom=true \
+                --no-transfer-progress \
+                -q && echo "$ARTIFACT:$VERSION OK" || echo "$ARTIFACT:$VERSION FAILED"
+            else
+              echo "$ARTIFACT:$VERSION — JAR not found, skipping"
+            fi
+          }
 
-            echo "=== Done ==="
-          ENDSSH
+          echo "=== com.kodzotech ==="
+          deploy "security-oauth2-3.7.0-SNAPSHOT"          "com.kodzotech" "security-oauth2"          "3.7.0-SNAPSHOT"
+          deploy "notification-api-2.11.0-SNAPSHOT"        "com.kodzotech" "notification-api"         "2.11.0-SNAPSHOT"
+          deploy "planificateur-api-0.0.3-SNAPSHOT"        "com.kodzotech" "planificateur-api"        "0.0.3-SNAPSHOT"
+          deploy "number-generator-api-0.0.1-SNAPSHOT"     "com.kodzotech" "number-generator-api"     "0.0.1-SNAPSHOT"
+
+          echo "=== com.evoltica ==="
+          deploy "activity-tracking-starter-1.0.0-SNAPSHOT" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT"
+
+          echo "=== com.synapsesit ==="
+          deploy "sfd-demo-data-1.0.0-SNAPSHOT"      "com.synapsesit" "sfd-demo-data"      "1.0.0-SNAPSHOT"
+          deploy "sfd-report-api-1.0.0-SNAPSHOT"     "com.synapsesit" "sfd-report-api"     "1.0.0-SNAPSHOT"
+          deploy "sfd-integration-api-1.0.0-SNAPSHOT" "com.synapsesit" "sfd-integration-api" "1.0.0-SNAPSHOT"
+
+          echo "=== Done ==="
