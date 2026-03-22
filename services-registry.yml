@@ -1,0 +1,193 @@
+# services-registry.yml
+# Clé = github.repository (org/repo) — source de vérité unique pour tous les services SFD
+# Modifier ICI quand un port ou une config change. Jamais dans les repos de service.
+
+Peterery21/sfd-commun-service:
+  template: java
+  app-name: sfd-commun
+  dev-port: 4597
+  prod-port: 4611
+  internal-port: 4597
+  health-path: /api/preference/actuator/health
+  release-branch: master
+
+Peterery21/sfd-epargne-service:
+  template: java
+  app-name: sfd-epargne
+  dev-port: 4596
+  prod-port: 4612
+  internal-port: 4596
+  health-path: /api/epargne/actuator/health
+  release-branch: master
+
+Peterery21/sfd-client-service:
+  template: java
+  app-name: sfd-client
+  dev-port: 4598
+  prod-port: 4613
+  internal-port: 4598
+  health-path: /api/client/actuator/health
+  release-branch: master
+
+Peterery21/sfd-caisse-service:
+  template: java
+  app-name: sfd-caisse
+  dev-port: 4599
+  prod-port: 4614
+  internal-port: 4599
+  health-path: /api/caisse/actuator/health
+  release-branch: master
+
+Peterery21/sfd-comptabilite-service:
+  template: java
+  app-name: sfd-comptabilite
+  dev-port: 4595
+  prod-port: 4615
+  internal-port: 4595
+  health-path: /api/comptabilite/actuator/health
+  release-branch: master
+
+Peterery21/sfd-credit-service:
+  template: java
+  app-name: sfd-credit
+  dev-port: 4594
+  prod-port: 4618
+  internal-port: 4594
+  health-path: /api/credit/actuator/health
+  release-branch: master
+
+Peterery21/sfd-stock-service:
+  template: java
+  app-name: sfd-stock
+  dev-port: 4601
+  prod-port: 4619
+  internal-port: 4601
+  health-path: /api/stock/actuator/health
+  release-branch: master
+
+Peterery21/sfd-commercial-service:
+  template: java
+  app-name: sfd-commercial
+  dev-port: 4609
+  prod-port: 4625
+  internal-port: 4609
+  health-path: /api/commercial/actuator/health
+  release-branch: master
+
+Peterery21/sfd-reporting-service:
+  template: java
+  app-name: sfd-reporting
+  dev-port: 4593
+  prod-port: 4617
+  internal-port: 4593
+  health-path: /api/reporting/actuator/health
+  release-branch: master
+
+Peterery21/sfd-suivi-evaluation-service:
+  template: java
+  app-name: sfd-suivi-evaluation
+  dev-port: 4608
+  prod-port: 4624
+  internal-port: 4608
+  health-path: /api/suivi-evaluation/actuator/health
+  release-branch: master
+
+Peterery21/sfd-portail-client-service:
+  template: java
+  app-name: sfd-portail-client
+  dev-port: 4610
+  prod-port: 4629
+  internal-port: 4610
+  health-path: /api/portail-client/actuator/health
+  release-branch: master
+
+Peterery21/sfd-immobilisation-service:
+  template: java
+  app-name: sfd-immobilisation
+  dev-port: 4600
+  prod-port: 4616
+  internal-port: 4600
+  health-path: /api/immobilisation/actuator/health
+  release-branch: main
+
+Peterery21/sfd-rh-service:
+  template: java
+  app-name: sfd-rh
+  dev-port: 4602
+  prod-port: 4620
+  internal-port: 4602
+  health-path: /api/rh/actuator/health
+  release-branch: main
+
+Peterery21/sfd-paie-service:
+  template: java
+  app-name: sfd-paie
+  dev-port: 4603
+  prod-port: 4621
+  internal-port: 4603
+  health-path: /api/paie/actuator/health
+  release-branch: main
+
+Peterery21/sfd-budget-service:
+  template: java
+  app-name: sfd-budget
+  dev-port: 4604
+  prod-port: 4622
+  internal-port: 4604
+  health-path: /api/budget/actuator/health
+  release-branch: main
+
+Peterery21/sfd-transfert-service:
+  template: java
+  app-name: sfd-transfert
+  dev-port: 4605
+  prod-port: 4623
+  internal-port: 4605
+  health-path: /api/transfert/actuator/health
+  release-branch: main
+
+Peterery21/sfd-agent-mobile-service:
+  template: java
+  app-name: sfd-agent-mobile
+  dev-port: 4627
+  prod-port: 4628
+  internal-port: 4627
+  health-path: /api/agent-mobile/actuator/health
+  release-branch: main
+
+Peterery21/sfd-angular:
+  template: angular
+  app-name: sfd-angular
+  dev-port: 4621
+  prod-port: 4620
+  release-branch: master
+  e2e-enabled: true
+  e2e-command: npm run e2e:chromium
+  json-server-port: 3000
+
+Peterery21/sfd-portail-client-angular:
+  template: angular
+  app-name: sfd-portail-client-angular
+  dev-port: 4589
+  prod-port: 4588
+  release-branch: master
+  e2e-enabled: false
+  json-server-port: 0
+
+Peterery21/sfd-demo-data:
+  template: maven-library
+  app-name: sfd-demo-data
+  sonar-enabled: true
+  nexus-deploy: true
+
+Peterery21/sfd-integration-api:
+  template: maven-library
+  app-name: sfd-integration-api
+  sonar-enabled: true
+  nexus-deploy: true
+
+Peterery21/sfd-report-api:
+  template: maven-library
+  app-name: sfd-report-api
+  sonar-enabled: true
+  nexus-deploy: true
