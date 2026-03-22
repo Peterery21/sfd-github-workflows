@@ -41,16 +41,15 @@ jobs:
                 --upload-file "$JAR_FILE" "${BASE_URL}/${ARTIFACT_ID}-${VERSION}.jar")
               echo "    JAR: HTTP $HTTP"
 
-              cat > /tmp/minimal.pom << POMEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<project>
-  <modelVersion>4.0.0</modelVersion>
-  <groupId>${GROUP_ID}</groupId>
-  <artifactId>${ARTIFACT_ID}</artifactId>
-  <version>${VERSION}</version>
-  <packaging>jar</packaging>
-</project>
-POMEOF
+              printf '%s\n' \
+                '<?xml version="1.0" encoding="UTF-8"?>' \
+                '<project>' \
+                '  <modelVersion>4.0.0</modelVersion>' \
+                "  <groupId>${GROUP_ID}</groupId>" \
+                "  <artifactId>${ARTIFACT_ID}</artifactId>" \
+                "  <version>${VERSION}</version>" \
+                '  <packaging>jar</packaging>' \
+                '</project>' > /tmp/minimal.pom
               HTTP=$(curl -s -k -o /dev/null -w "%{http_code}" -u "$AUTH" -X PUT \
                 --upload-file /tmp/minimal.pom "${BASE_URL}/${ARTIFACT_ID}-${VERSION}.pom")
               echo "    POM: HTTP $HTTP"
