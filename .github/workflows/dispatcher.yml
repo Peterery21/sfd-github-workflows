@@ -1,0 +1,121 @@
+name: Dispatcher
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        default: false
+      release-type:
+        type: string
+        default: patch
+    secrets:
+      REGISTRY_URL:
+        required: true
+      REGISTRY_USER:
+        required: true
+      REGISTRY_PASSWORD:
+        required: true
+      SONAR_TOKEN:
+        required: false
+      SONAR_HOST_URL:
+        required: false
+      VPS_HOST:
+        required: false
+      VPS_USER:
+        required: false
+      VPS_SSH_KEY:
+        required: false
+      GH_PAT:
+        required: false
+
+jobs:
+  resolve:
+    name: Resolve service config
+    runs-on: ubuntu-latest
+    outputs:
+      template: ${{ steps.registry.outputs.template }}
+      app-name: ${{ steps.registry.outputs.app-name }}
+      dev-port: ${{ steps.registry.outputs.dev-port }}
+      prod-port: ${{ steps.registry.outputs.prod-port }}
+      internal-port: ${{ steps.registry.outputs.internal-port }}
+      health-path: ${{ steps.registry.outputs.health-path }}
+      release-branch: ${{ steps.registry.outputs.release-branch }}
+      e2e-enabled: ${{ steps.registry.outputs.e2e-enabled }}
+      e2e-command: ${{ steps.registry.outputs.e2e-command }}
+      json-server-port: ${{ steps.registry.outputs.json-server-port }}
+      sonar-enabled: ${{ steps.registry.outputs.sonar-enabled }}
+      nexus-deploy: ${{ steps.registry.outputs.nexus-deploy }}
+    steps:
+      - name: Checkout sfd-github-workflows
+        uses: actions/checkout@v4
+        with:
+          repository: Peterery21/sfd-github-workflows
+          ref: main
+
+      - name: Resolve registry entry
+        id: registry
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 << 'EOF'
+          import yaml, os, sys
+
+          with open('services-registry.yml') as f:
+              registry = yaml.safe_load(f)
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          # Skip _meta key
+          entry = {k: v for k, v in registry.items() if not k.startswith('_')}.get(repo)
+          if not entry:
+              print(f"::error::Repository {repo} not found in services-registry.yml")
+              sys.exit(1)
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as out:
+              for key, value in entry.items():
+                  if value is None:
+                      value = ''
+                  out.write(f"{key}={value}\n")
+          EOF
+
+  java:
+    name: Java Microservice Pipeline
+    needs: resolve
+    if: needs.resolve.outputs.template == 'java'
+    uses: Peterery21/sfd-github-workflows/.github/workflows/java-microservice.yml@main
+    with:
+      app-name: ${{ needs.resolve.outputs.app-name }}
+      dev-port: ${{ fromJSON(needs.resolve.outputs.dev-port) }}
+      prod-port: ${{ fromJSON(needs.resolve.outputs.prod-port) }}
+      java-internal-port: ${{ fromJSON(needs.resolve.outputs.internal-port) }}
+      health-path: ${{ needs.resolve.outputs.health-path }}
+      release-branch: ${{ needs.resolve.outputs.release-branch }}
+      release: ${{ inputs.release }}
+      release-type: ${{ inputs.release-type }}
+    secrets: inherit
+
+  angular:
+    name: Angular Pipeline
+    needs: resolve
+    if: needs.resolve.outputs.template == 'angular'
+    uses: Peterery21/sfd-github-workflows/.github/workflows/angular-pipeline.yml@main
+    with:
+      app-name: ${{ needs.resolve.outputs.app-name }}
+      dev-port: ${{ fromJSON(needs.resolve.outputs.dev-port) }}
+      prod-port: ${{ fromJSON(needs.resolve.outputs.prod-port) }}
+      release-branch: ${{ needs.resolve.outputs.release-branch }}
+      e2e-enabled: ${{ fromJSON(needs.resolve.outputs.e2e-enabled) }}
+      e2e-command: ${{ needs.resolve.outputs.e2e-command }}
+      json-server-port: ${{ fromJSON(needs.resolve.outputs.json-server-port || '0') }}
+    secrets: inherit
+
+  maven-library:
+    name: Maven Library Pipeline
+    needs: resolve
+    if: needs.resolve.outputs.template == 'maven-library'
+    uses: Peterery21/sfd-github-workflows/.github/workflows/maven-library.yml@main
+    with:
+      app-name: ${{ needs.resolve.outputs.app-name }}
+      sonar-enabled: ${{ fromJSON(needs.resolve.outputs.sonar-enabled) }}
+      nexus-deploy: ${{ fromJSON(needs.resolve.outputs.nexus-deploy) }}
+    secrets: inherit
