@@ -118,8 +118,9 @@ jobs:
 
           copy_and_install() {
             local NAME="$1" GROUP="$2" ARTIFACT="$3" VERSION="$4"
+            # Search in Jenkins job archives first, then in local Maven cache
             local REMOTE=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "find $JENKINS/jobs -name '${ARTIFACT}-${VERSION}.jar' 2>/dev/null | grep -v sources | tail -1" 2>/dev/null)
+              "find $JENKINS/jobs $JENKINS/.m2/repository -name '${ARTIFACT}-${VERSION}.jar' 2>/dev/null | grep -v sources | grep -v javadoc | tail -1" 2>/dev/null)
             if [ -n "$REMOTE" ]; then
               scp -q -i ~/.ssh/deploy_key "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${REMOTE}" "/tmp/jars/${NAME}.jar" 2>/dev/null
               mvn install:install-file \
@@ -137,6 +138,7 @@ jobs:
 
           copy_and_install "security-oauth2"          "com.kodzotech" "security-oauth2"          "3.7.0-SNAPSHOT"
           copy_and_install "notification-api"         "com.kodzotech" "notification-api"         "2.11.0-SNAPSHOT"
+          copy_and_install "fileupload-api"           "com.kodzotech" "fileupload-api"           "1.4.0-SNAPSHOT"
           copy_and_install "planificateur-api"        "com.kodzotech" "planificateur-api"        "0.0.3-SNAPSHOT"
           copy_and_install "number-generator-api"     "com.kodzotech" "number-generator-api"     "0.0.1-SNAPSHOT"
           copy_and_install "activity-tracking-starter" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT"
