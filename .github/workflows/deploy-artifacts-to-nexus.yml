@@ -4,8 +4,8 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  deploy:
-    name: Upload JARs from VPS Maven cache to Nexus
+  explore:
+    name: Explore VPS and find Maven cache
     runs-on: ubuntu-latest
     steps:
       - name: Setup SSH key
@@ -15,69 +15,93 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Deploy artifacts from Jenkins Maven cache to Nexus
+      - name: Find Maven cache location on VPS
         run: |
           ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} /bin/bash << 'ENDSSH'
-            set -e
+            echo "=== All containers ==="
+            docker ps -a --format '{{.Names}} {{.Image}} {{.Status}}'
+            
+            echo "=== Find Maven repos ==="
+            find /root /home /var /opt -name "settings.xml" -path "*/.m2/*" 2>/dev/null | head -20
+            find /root /home /var /opt -type d -name "com.kodzotech" 2>/dev/null | head -10
+            find /root /home /var /opt -type d -name "kodzotech" 2>/dev/null | head -10
+            
+            echo "=== Check Jenkins install ==="
+            which jenkins 2>/dev/null || true
+            ps aux | grep -i jenkins | grep -v grep | head -5
+            ls /var/lib/jenkins 2>/dev/null | head -10
+            ls /home/ubuntu 2>/dev/null | head -20
+          ENDSSH
+
+  deploy:
+    name: Deploy artifacts to Nexus
+    runs-on: ubuntu-latest
+    needs: explore
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Upload JARs to Nexus from VPS Maven cache
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} /bin/bash << 'ENDSSH'
             NEXUS="https://nexus.evolticatechnologies.com"
             AUTH="admin:motdepasse"
 
-            # Find Jenkins container
-            JC=$(docker ps --format '{{.Names}}' | grep -i jenkins | head -1)
-            echo "Jenkins container: $JC"
-            if [ -z "$JC" ]; then
-              echo "ERROR: No Jenkins container found"
-              docker ps
-              exit 1
-            fi
-
-            # Function to upload a JAR+POM pair
-            upload_artifact() {
-              local FULL_PATH="$1"
-              local RELATIVE="${FULL_PATH#/root/.m2/repository/}"
-              local FILENAME=$(basename "$FULL_PATH")
-              local VER_DIR=$(dirname "$FULL_PATH")
+            upload_jar() {
+              local JAR_PATH="$1"
+              local FULL_PATH="$JAR_PATH"
+              # Detect repo root
+              local M2ROOT
+              if [[ "$JAR_PATH" == /root/.m2/* ]]; then
+                M2ROOT="/root/.m2/repository"
+              elif [[ "$JAR_PATH" == /home/*/.m2/* ]]; then
+                M2ROOT="${JAR_PATH%%/.m2/*}/.m2/repository"
+              else
+                M2ROOT=$(echo "$JAR_PATH" | grep -o '.*/\.m2/repository')
+              fi
+              local RELATIVE="${JAR_PATH#${M2ROOT}/}"
+              local FILENAME=$(basename "$JAR_PATH")
+              # extract components from path: group/artifact/version/file.jar
+              local VER_DIR=$(dirname "$JAR_PATH")
               local VERSION=$(basename "$VER_DIR")
               local ART_DIR=$(dirname "$VER_DIR")
               local ARTIFACT_ID=$(basename "$ART_DIR")
               local GROUP_DIR=$(dirname "$ART_DIR")
-              local RELATIVE_GROUP="${GROUP_DIR#/root/.m2/repository/}"
+              local GROUP_RELATIVE="${GROUP_DIR#${M2ROOT}/}"
 
-              # Skip if not a SNAPSHOT
               echo "$VERSION" | grep -q "SNAPSHOT" || return 0
-
-              echo "==> $ARTIFACT_ID:$VERSION"
-              local POM="${VER_DIR}/${ARTIFACT_ID}-${VERSION}.pom"
-
-              # Copy JAR from container
-              docker cp "$JC:$FULL_PATH" /tmp/upload.jar 2>/dev/null || return 1
+              echo "==> Uploading $ARTIFACT_ID $VERSION"
 
               # Upload JAR
-              HTTP=$(curl -s -k -o /dev/null -w "%{http_code}" \
-                -u "$AUTH" -X PUT \
-                --upload-file /tmp/upload.jar \
-                "$NEXUS/repository/maven-snapshots/${RELATIVE_GROUP}/${ARTIFACT_ID}/${VERSION}/${FILENAME}")
+              HTTP=$(curl -s -k -o /dev/null -w "%{http_code}" -u "$AUTH" -X PUT \
+                --upload-file "$JAR_PATH" \
+                "$NEXUS/repository/maven-snapshots/${GROUP_RELATIVE}/${ARTIFACT_ID}/${VERSION}/${FILENAME}")
               echo "    JAR: HTTP $HTTP"
 
               # Upload POM if exists
-              if docker exec "$JC" test -f "$POM" 2>/dev/null; then
-                docker cp "$JC:$POM" /tmp/upload.pom 2>/dev/null
-                HTTP=$(curl -s -k -o /dev/null -w "%{http_code}" \
-                  -u "$AUTH" -X PUT \
-                  --upload-file /tmp/upload.pom \
-                  "$NEXUS/repository/maven-snapshots/${RELATIVE_GROUP}/${ARTIFACT_ID}/${VERSION}/${ARTIFACT_ID}-${VERSION}.pom")
+              local POM="${VER_DIR}/${ARTIFACT_ID}-${VERSION}.pom"
+              if [ -f "$POM" ]; then
+                HTTP=$(curl -s -k -o /dev/null -w "%{http_code}" -u "$AUTH" -X PUT \
+                  --upload-file "$POM" \
+                  "$NEXUS/repository/maven-snapshots/${GROUP_RELATIVE}/${ARTIFACT_ID}/${VERSION}/${ARTIFACT_ID}-${VERSION}.pom")
                 echo "    POM: HTTP $HTTP"
               fi
             }
 
-            # Process all internal artifact JARs
-            for JAR in $(docker exec "$JC" find \
-              /root/.m2/repository/com/kodzotech \
-              /root/.m2/repository/com/evoltica \
-              /root/.m2/repository/com/synapsesit 2>/dev/null \
-              -name "*.jar" | grep -v sources | grep -v javadoc | grep -v tests | grep -v test-); do
-              upload_artifact "$JAR" || echo "WARN: failed $JAR"
+            # Find all possible Maven repo locations
+            for M2 in /root/.m2 /home/ubuntu/.m2 /var/lib/jenkins/.m2 /home/jenkins/.m2; do
+              if [ -d "${M2}/repository/com/kodzotech" ] || [ -d "${M2}/repository/com/evoltica" ] || [ -d "${M2}/repository/com/synapsesit" ]; then
+                echo "Found Maven repo at: $M2"
+                for JAR in $(find "${M2}/repository/com/kodzotech" "${M2}/repository/com/evoltica" "${M2}/repository/com/synapsesit" 2>/dev/null \
+                  -name "*.jar" | grep -v sources | grep -v javadoc | grep -v tests); do
+                  upload_jar "$JAR" || echo "WARN: failed $JAR"
+                done
+              fi
             done
 
-            echo "Done!"
+            echo "=== Done ==="
           ENDSSH
