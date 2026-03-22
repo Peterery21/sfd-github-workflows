@@ -109,15 +109,17 @@ jobs:
 
       - name: Build SFD internal libraries from source
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        continue-on-error: true
         run: |
           # Build SFD libs from GitHub source (always up-to-date, proper transitive deps)
+          # Requires GH_PAT org secret with read:org + contents:read scope
           build_lib() {
             local REPO="$1" DIR="/tmp/libs/$2"
             echo "Building $REPO..."
-            git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/Peterery21/${REPO}.git" "$DIR" 2>/dev/null
-            mvn -f "$DIR/pom.xml" install -DskipTests -q --no-transfer-progress 2>/dev/null \
-              && echo "$REPO built OK" || echo "$REPO build failed (will fallback to VPS)"
+            git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/Peterery21/${REPO}.git" "$DIR" 2>&1 | tail -1 || { echo "$REPO clone failed, will use VPS JAR"; return 0; }
+            mvn -f "$DIR/pom.xml" install -DskipTests -q --no-transfer-progress \
+              && echo "$REPO built OK" || echo "$REPO build failed"
           }
           mkdir -p /tmp/libs
           build_lib "sfd-report-api"      "sfd-report-api"
@@ -136,6 +138,12 @@ jobs:
           copy_and_install() {
             local NAME="$1" GROUP="$2" ARTIFACT="$3" VERSION="$4"
             local BASE_VERSION="${VERSION%-SNAPSHOT}"
+            local GROUP_PATH="${GROUP//\./\/}"
+            # Skip if already installed from source build
+            if find ~/.m2/repository/${GROUP_PATH}/${ARTIFACT}/${VERSION}/ -name "*.jar" 2>/dev/null | grep -q .; then
+              echo "$ARTIFACT:$VERSION already in local cache, skipping VPS copy"
+              return 0
+            fi
 
             # Find JAR: in Jenkins job archives (named artifact-VERSION.jar) or .m2 (named with timestamp)
             local REMOTE_JAR=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
@@ -183,7 +191,10 @@ jobs:
           copy_and_install "number-generator-api"     "com.kodzotech" "number-generator-api"     "0.0.1-SNAPSHOT"
           copy_and_install "realtime-ws"               "com.evoltica" "realtime-ws"               "0.0.1-SNAPSHOT"
           copy_and_install "activity-tracking-starter" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT"
-          # sfd-demo-data, sfd-report-api, sfd-integration-api built from source above (not VPS)
+          # sfd-report-api, sfd-integration-api, sfd-demo-data: try VPS as fallback (if build-from-source step above failed)
+          copy_and_install "sfd-demo-data"            "com.synapsesit" "sfd-demo-data"            "1.0.0-SNAPSHOT"
+          copy_and_install "sfd-report-api"           "com.synapsesit" "sfd-report-api"           "1.0.0-SNAPSHOT"
+          copy_and_install "sfd-integration-api"      "com.synapsesit" "sfd-integration-api"      "1.0.0-SNAPSHOT"
 
       - name: Determine version
         id: version
