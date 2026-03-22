@@ -1,0 +1,257 @@
+name: Java Microservice Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: "Nom de l'application (ex: sfd-epargne)"
+        type: string
+        required: true
+      dev-port:
+        description: "Port exposé en environnement dev"
+        type: number
+        required: true
+      prod-port:
+        description: "Port exposé en environnement prod"
+        type: number
+        required: true
+      java-internal-port:
+        description: "Port interne de l'application Spring Boot"
+        type: number
+        required: true
+      health-path:
+        description: "Chemin du health check (ex: /api/epargne/actuator/health)"
+        type: string
+        required: true
+      release-branch:
+        description: "Branche de production (master ou main)"
+        type: string
+        default: "master"
+      jvm-opts:
+        description: "Options JVM"
+        type: string
+        default: "-Xms384m -Xmx768m -XX:MaxMetaspaceSize=192m -XX:+UseG1GC -XX:+UseStringDeduplication -XX:+OptimizeStringConcat -Djava.security.egd=file:/dev/./urandom"
+      memory-limit:
+        description: "Limite mémoire Docker"
+        type: string
+        default: "1g"
+      maven-goals:
+        description: "Goals Maven"
+        type: string
+        default: "clean verify"
+      sonar-enabled:
+        description: "Activer l'analyse SonarQube"
+        type: boolean
+        default: true
+      upload-folder:
+        description: "Dossier upload de l'application"
+        type: string
+        default: "/upload"
+    secrets:
+      REGISTRY_URL:
+        required: true
+      REGISTRY_USER:
+        required: true
+      REGISTRY_PASSWORD:
+        required: true
+      SONAR_TOKEN:
+        required: false
+      SONAR_HOST_URL:
+        required: false
+      VPS_HOST:
+        required: true
+      VPS_USER:
+        required: true
+      VPS_SSH_KEY:
+        required: true
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1 : Build + Tests + SonarQube
+  # ─────────────────────────────────────────
+  build:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
+
+      - name: Determine version
+        id: version
+        run: |
+          RUN_NUM=${{ github.run_number }}
+          BRANCH=${GITHUB_REF_NAME}
+          if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
+            echo "version=latest" >> $GITHUB_OUTPUT
+            echo "env=prod" >> $GITHUB_OUTPUT
+          else
+            echo "version=${RUN_NUM}-SNAPSHOT" >> $GITHUB_OUTPUT
+            echo "env=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build & Test
+        run: mvn ${{ inputs.maven-goals }} -q
+
+      - name: SonarQube Analysis
+        if: ${{ inputs.sonar-enabled && secrets.SONAR_TOKEN != '' }}
+        run: |
+          mvn sonar:sonar \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.token=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -q
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jar-${{ github.run_number }}
+          path: target/*.jar
+          retention-days: 1
+
+  # ─────────────────────────────────────────
+  # JOB 2 : Docker Build + Push
+  # ─────────────────────────────────────────
+  docker:
+    name: Docker Build & Push
+    runs-on: ubuntu-latest
+    needs: build
+    outputs:
+      image-tag: ${{ steps.tag.outputs.image-tag }}
+      container-name: ${{ steps.tag.outputs.container-name }}
+      port-mapping: ${{ steps.tag.outputs.port-mapping }}
+      spring-profile: ${{ steps.tag.outputs.spring-profile }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: jar-${{ github.run_number }}
+          path: target/
+
+      - name: Set image tags
+        id: tag
+        run: |
+          BRANCH=${GITHUB_REF_NAME}
+          if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
+            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:latest"
+            CONTAINER="${{ inputs.app-name }}"
+            PORT="${{ inputs.prod-port }}:${{ inputs.java-internal-port }}"
+            PROFILE="prod"
+            APP_DIR="/home/ubuntu/pierre/app/prod/${{ inputs.app-name }}"
+          else
+            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}-dev:${{ needs.build.outputs.version }}"
+            CONTAINER="${{ inputs.app-name }}-dev"
+            PORT="${{ inputs.dev-port }}:${{ inputs.java-internal-port }}"
+            PROFILE="dev"
+            APP_DIR="/home/ubuntu/pierre/app/dev/${{ inputs.app-name }}"
+          fi
+          echo "image-tag=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "container-name=${CONTAINER}" >> $GITHUB_OUTPUT
+          echo "port-mapping=${PORT}" >> $GITHUB_OUTPUT
+          echo "spring-profile=${PROFILE}" >> $GITHUB_OUTPUT
+          echo "app-dir=${APP_DIR}" >> $GITHUB_OUTPUT
+
+      - name: Login to Docker Registry
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ secrets.REGISTRY_URL }} \
+            -u ${{ secrets.REGISTRY_USER }} --password-stdin
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ steps.tag.outputs.image-tag }} .
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ steps.tag.outputs.image-tag }}
+
+  # ─────────────────────────────────────────
+  # JOB 3 : Deploy via SSH
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: docker
+
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy container
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+            set -e
+            IMAGE="${{ needs.docker.outputs.image-tag }}"
+            CONTAINER="${{ needs.docker.outputs.container-name }}"
+            PORT="${{ needs.docker.outputs.port-mapping }}"
+            PROFILE="${{ needs.docker.outputs.spring-profile }}"
+            APP_DIR="/home/ubuntu/pierre/app/${PROFILE}/${{ inputs.app-name }}"
+            LOG_DIR="/opt/sfd/logs-${PROFILE}"
+
+            echo "🚀 Deploying ${CONTAINER}..."
+
+            # Préparer les dossiers
+            mkdir -p "${APP_DIR}/upload" "${LOG_DIR}"
+
+            # Pull nouvelle image
+            docker pull "${IMAGE}"
+
+            # Stocker le nom de l'ancienne image pour rollback
+            OLD_IMAGE=$(docker inspect "${CONTAINER}" --format='{{.Config.Image}}' 2>/dev/null || echo "")
+
+            # Arrêter et supprimer l'ancien container
+            docker stop "${CONTAINER}" 2>/dev/null || true
+            docker rm "${CONTAINER}" 2>/dev/null || true
+
+            # Démarrer le nouveau container
+            docker run -d \
+              --name "${CONTAINER}" \
+              --restart=always \
+              --memory="${{ inputs.memory-limit }}" \
+              --memory-swap="${{ inputs.memory-limit }}" \
+              --cpus=2 \
+              -p "${PORT}" \
+              -e SPRING_PROFILES_ACTIVE="${PROFILE}" \
+              -e UPLOAD_FOLDER="${{ inputs.upload-folder }}" \
+              -e JAVA_OPTS="${{ inputs.jvm-opts }}" \
+              -v "${APP_DIR}/upload:${{ inputs.upload-folder }}" \
+              -v "${LOG_DIR}:/app/logs" \
+              "${IMAGE}"
+
+            echo "✅ Container ${CONTAINER} started"
+          ENDSSH
+
+      - name: Health check
+        run: |
+          PORT=$(echo "${{ needs.docker.outputs.port-mapping }}" | cut -d: -f1)
+          echo "Checking health on port ${PORT}..."
+          for i in $(seq 1 15); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              "http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/15 — status: ${STATUS}, waiting 10s..."
+            sleep 10
+          done
+          echo "❌ Health check failed after 15 attempts — rolling back"
+          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "docker stop ${{ needs.docker.outputs.container-name }} || true"
+          exit 1

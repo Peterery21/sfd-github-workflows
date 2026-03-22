@@ -1,0 +1,240 @@
+name: Angular Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: "Nom de l'application (ex: sfd-angular)"
+        type: string
+        required: true
+      dev-port:
+        description: "Port exposé en environnement dev"
+        type: number
+        required: true
+      prod-port:
+        description: "Port exposé en environnement prod"
+        type: number
+        required: true
+      release-branch:
+        description: "Branche de production"
+        type: string
+        default: "master"
+      e2e-enabled:
+        description: "Activer les tests E2E Playwright post-deploy"
+        type: boolean
+        default: false
+      e2e-command:
+        description: "Commande E2E Playwright"
+        type: string
+        default: "npm run e2e:chromium"
+      e2e-base-url:
+        description: "URL de base pour les tests E2E"
+        type: string
+        default: ""
+      build-configuration:
+        description: "Configuration de build Angular"
+        type: string
+        default: "production"
+      json-server-port:
+        description: "Port JSON Server (0 = désactivé)"
+        type: number
+        default: 0
+    secrets:
+      REGISTRY_URL:
+        required: true
+      REGISTRY_USER:
+        required: true
+      REGISTRY_PASSWORD:
+        required: true
+      VPS_HOST:
+        required: true
+      VPS_USER:
+        required: true
+      VPS_SSH_KEY:
+        required: true
+
+jobs:
+  # ─────────────────────────────────────────
+  # JOB 1 : Build Angular
+  # ─────────────────────────────────────────
+  build:
+    name: Build Angular
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      image-tag: ${{ steps.tag.outputs.image-tag }}
+      container-name: ${{ steps.tag.outputs.container-name }}
+      port-mapping: ${{ steps.tag.outputs.port-mapping }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set version and tags
+        id: version
+        run: |
+          RUN_NUM=${{ github.run_number }}
+          BRANCH=${GITHUB_REF_NAME}
+          if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
+            echo "version=latest" >> $GITHUB_OUTPUT
+            echo "config=production" >> $GITHUB_OUTPUT
+          else
+            echo "version=${RUN_NUM}-SNAPSHOT" >> $GITHUB_OUTPUT
+            echo "config=development" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Angular
+        run: npx ng build --configuration ${{ steps.version.outputs.config }}
+
+      - name: Set image tags
+        id: tag
+        run: |
+          BRANCH=${GITHUB_REF_NAME}
+          if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
+            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:latest"
+            CONTAINER="${{ inputs.app-name }}"
+            PORT="${{ inputs.prod-port }}:80"
+          else
+            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}-dev:${{ steps.version.outputs.version }}"
+            CONTAINER="${{ inputs.app-name }}-dev"
+            PORT="${{ inputs.dev-port }}:80"
+          fi
+          echo "image-tag=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "container-name=${CONTAINER}" >> $GITHUB_OUTPUT
+          echo "port-mapping=${PORT}" >> $GITHUB_OUTPUT
+
+      - name: Login to Docker Registry
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ secrets.REGISTRY_URL }} \
+            -u ${{ secrets.REGISTRY_USER }} --password-stdin
+
+      - name: Build & Push Docker image
+        run: |
+          docker build -t ${{ steps.tag.outputs.image-tag }} .
+          docker push ${{ steps.tag.outputs.image-tag }}
+
+  # ─────────────────────────────────────────
+  # JOB 2 : Deploy via SSH
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy container
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+            set -e
+            IMAGE="${{ needs.build.outputs.image-tag }}"
+            CONTAINER="${{ needs.build.outputs.container-name }}"
+            PORT="${{ needs.build.outputs.port-mapping }}"
+
+            echo "🚀 Deploying ${CONTAINER}..."
+
+            docker pull "${IMAGE}"
+
+            docker stop "${CONTAINER}" 2>/dev/null || true
+            docker rm "${CONTAINER}" 2>/dev/null || true
+
+            EXTRA_ARGS=""
+            if [ "${{ inputs.json-server-port }}" != "0" ]; then
+              BRANCH="${{ github.ref_name }}"
+              if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
+                EXTRA_ARGS="-p 3588:3000"
+              else
+                EXTRA_ARGS="-p 3589:3000"
+              fi
+            fi
+
+            docker run -d \
+              --name "${CONTAINER}" \
+              --restart=always \
+              -p "${PORT}" \
+              ${EXTRA_ARGS} \
+              "${IMAGE}"
+
+            echo "✅ Container ${CONTAINER} started"
+          ENDSSH
+
+      - name: Health check
+        run: |
+          PORT=$(echo "${{ needs.build.outputs.port-mapping }}" | cut -d: -f1)
+          echo "Checking health on http://${{ secrets.VPS_HOST }}:${PORT}..."
+          for i in $(seq 1 15); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              "http://${{ secrets.VPS_HOST }}:${PORT}" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/15 — status: ${STATUS}, waiting 10s..."
+            sleep 10
+          done
+          echo "❌ Health check failed"
+          exit 1
+
+  # ─────────────────────────────────────────
+  # JOB 3 : E2E Tests (optionnel)
+  # ─────────────────────────────────────────
+  e2e:
+    name: E2E Playwright Tests
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: ${{ inputs.e2e-enabled }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Determine E2E base URL
+        id: e2e-url
+        run: |
+          PORT=$(echo "${{ needs.build.outputs.port-mapping }}" | cut -d: -f1)
+          if [ -n "${{ inputs.e2e-base-url }}" ]; then
+            echo "url=${{ inputs.e2e-base-url }}" >> $GITHUB_OUTPUT
+          else
+            echo "url=http://${{ secrets.VPS_HOST }}:${PORT}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run E2E tests
+        run: ${{ inputs.e2e-command }}
+        env:
+          CI: true
+          BASE_URL: ${{ steps.e2e-url.outputs.url }}
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-${{ github.run_number }}
+          path: playwright-report/
+          retention-days: 7
