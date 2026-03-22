@@ -103,7 +103,7 @@ jobs:
         run: mvn ${{ inputs.maven-goals }} -q
 
       - name: SonarQube Analysis
-        if: ${{ inputs.sonar-enabled && secrets.SONAR_TOKEN != '' }}
+        if: ${{ inputs.sonar-enabled }}
         run: |
           mvn sonar:sonar \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
