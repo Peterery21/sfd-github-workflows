@@ -178,6 +178,7 @@ jobs:
             fi
           }
 
+          copy_and_install "security-oauth2-3.6.0"      "com.kodzotech" "security-oauth2"          "3.6.0-SNAPSHOT"
           copy_and_install "security-oauth2"          "com.kodzotech" "security-oauth2"          "3.7.0-SNAPSHOT"
           copy_and_install "notification-api"         "com.kodzotech" "notification-api"         "2.11.0-SNAPSHOT"
           copy_and_install "fileupload-api"           "com.kodzotech" "fileupload-api"           "1.4.0-SNAPSHOT"
