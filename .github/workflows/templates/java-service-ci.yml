@@ -1,0 +1,35 @@
+# Template ci.yml pour microservices Java Spring Boot
+# Copier dans .github/workflows/ci.yml de chaque service repo
+# Adapter : app-name, dev-port, prod-port, java-internal-port, health-path
+
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [develop, master, main]
+  pull_request:
+    branches: [develop, master, main]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Déclencher un release (bump version + tag + Nexus releases + Docker :version)"
+        type: boolean
+        default: false
+      release-type:
+        description: "Type de release"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+jobs:
+  pipeline:
+    uses: Peterery21/sfd-github-workflows/.github/workflows/java-microservice.yml@main
+    with:
+      app-name: sfd-XXXXX                         # ← à adapter
+      dev-port: XXXXX                              # ← à adapter
+      prod-port: XXXXX                             # ← à adapter
+      java-internal-port: XXXXX                   # ← à adapter
+      health-path: /api/XXXXX/actuator/health     # ← à adapter
+      release-branch: master
+      release: ${{ inputs.release || false }}
+      release-type: ${{ inputs.release-type || 'patch' }}
+    secrets: inherit

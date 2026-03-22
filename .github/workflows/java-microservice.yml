@@ -47,6 +47,14 @@ on:
         description: "Dossier upload de l'application"
         type: string
         default: "/upload"
+      release:
+        description: "Déclencher un release (bump version + tag + Nexus releases + Docker :version)"
+        type: boolean
+        default: false
+      release-type:
+        description: "Type de release (patch / minor / major)"
+        type: string
+        default: "patch"
     secrets:
       REGISTRY_URL:
         required: true
@@ -70,14 +78,19 @@ on:
         required: true
       VPS_SSH_KEY:
         required: true
+      GH_PAT:
+        # Personal Access Token pour git push du commit de release
+        # Permissions requises: contents:write
+        required: false
 
 jobs:
   # ─────────────────────────────────────────
-  # JOB 1 : Build + Tests + SonarQube
+  # JOB 1 : Build + Tests + SonarQube + Nexus SNAPSHOT
   # ─────────────────────────────────────────
   build:
     name: Build & Test
     runs-on: ubuntu-latest
+    if: ${{ !inputs.release }}
     outputs:
       version: ${{ steps.version.outputs.version }}
 
@@ -148,18 +161,37 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
             -q
 
-      - name: Deploy SNAPSHOT to Nexus
-        # Comme Jenkins: deploySteps = 'mvn deploy -DskipTests' sur les branches stables (develop, master)
-        # Uniquement sur les versions SNAPSHOT (pas de re-upload de releases)
+      - name: Deploy SNAPSHOT to Nexus (même JAR — pas de double build)
+        # Utilise deploy:deploy-file pour pousser le JAR déjà construit par mvn verify
+        # (comme Jenkins stash/unstash — un seul build, même binaire testé va sur Nexus)
         if: ${{ github.ref_name == 'develop' || github.ref_name == inputs.release-branch }}
         continue-on-error: true
+        env:
+          NEXUS_URL: ${{ secrets.NEXUS_URL }}
         run: |
           POM_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
           if [[ "$POM_VERSION" == *"-SNAPSHOT" ]]; then
-            echo "Deploying ${POM_VERSION} to Nexus..."
-            mvn deploy -DskipTests -q --no-transfer-progress
+            JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | head -1)
+            if [ -z "$JAR" ]; then
+              echo "⚠️ No JAR found in target/ — skipping Nexus deploy"
+              exit 0
+            fi
+            GROUP_ID=$(mvn help:evaluate -Dexpression=project.groupId -q -DforceStdout)
+            ARTIFACT_ID=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
+            echo "Deploying ${JAR} (${GROUP_ID}:${ARTIFACT_ID}:${POM_VERSION}) to Nexus snapshots..."
+            mvn deploy:deploy-file \
+              -Durl="${NEXUS_URL}/repository/maven-snapshots/" \
+              -DrepositoryId=nexus-snapshots \
+              -Dfile="${JAR}" \
+              -DpomFile=pom.xml \
+              -DgroupId="${GROUP_ID}" \
+              -DartifactId="${ARTIFACT_ID}" \
+              -Dversion="${POM_VERSION}" \
+              -Dpackaging=jar \
+              --no-transfer-progress \
+              -q && echo "✅ ${ARTIFACT_ID}:${POM_VERSION} deployed to Nexus snapshots"
           else
-            echo "Release version ${POM_VERSION} — skipping Nexus deploy (releases go via Release workflow)"
+            echo "Release version ${POM_VERSION} — skipping Nexus deploy (use Release workflow)"
           fi
 
       - name: Upload JAR artifact
@@ -176,6 +208,7 @@ jobs:
     name: Docker Build & Push
     runs-on: ubuntu-latest
     needs: build
+    if: ${{ !inputs.release }}
     outputs:
       container-name: ${{ steps.tag.outputs.container-name }}
       port-mapping: ${{ steps.tag.outputs.port-mapping }}
@@ -222,12 +255,13 @@ jobs:
           docker push ${{ steps.tag.outputs.image-tag }}
 
   # ─────────────────────────────────────────
-  # JOB 3 : Deploy via SSH + Health Check
+  # JOB 3 : Deploy via SSH + Health Check + Rollback
   # ─────────────────────────────────────────
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
     needs: [build, docker]
+    if: ${{ !inputs.release }}
 
     steps:
       - name: Setup SSH key
@@ -391,4 +425,257 @@ EOF
               && echo "✅ Rollback to ${OLD_IMAGE} successful" \
               || echo "❌ Rollback failed"
           ROLLBACK
+          exit 1
+
+  # ─────────────────────────────────────────
+  # JOB 4 : Release (version bump + Nexus releases + Docker :version)
+  # Déclenché uniquement si inputs.release = true
+  # Équivalent Jenkins: params.Release=true → ReleaseUtils.performRelease
+  # ─────────────────────────────────────────
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: ${{ inputs.release }}
+
+    services:
+      rabbitmq:
+        image: rabbitmq:3-management
+        env:
+          RABBITMQ_DEFAULT_VHOST: /sfd
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # GH_PAT permet le push du commit de release (token Actions ne peut pas push sur branch protégée)
+          token: ${{ secrets.GH_PAT || github.token }}
+          fetch-depth: 0
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+          cache: "maven"
+
+      - name: Configure Maven (Nexus mirror)
+        env:
+          NEXUS_URL: ${{ secrets.NEXUS_URL }}
+          NEXUS_USER: ${{ secrets.NEXUS_USER }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: |
+          mkdir -p ~/.m2
+          printf '%s\n' \
+            '<settings>' \
+            '  <mirrors><mirror><id>nexus-public</id><mirrorOf>*</mirrorOf>' \
+            "    <url>${NEXUS_URL}/repository/maven-public/</url>" \
+            '  </mirror></mirrors>' \
+            '  <servers>' \
+            "    <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
+            "    <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
+            "    <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
+            '  </servers>' \
+            '</settings>' > ~/.m2/settings.xml
+
+      - name: Compute release version
+        id: release-version
+        run: |
+          CURRENT=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          # Enlever le suffixe -SNAPSHOT si présent
+          BASE=${CURRENT%-SNAPSHOT}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+          case "${{ inputs.release-type }}" in
+            major) NEW_VERSION="$((MAJOR+1)).0.0" ;;
+            minor) NEW_VERSION="${MAJOR}.$((MINOR+1)).0" ;;
+            patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH+1))" ;;
+            *)     NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH+1))" ;;
+          esac
+          # Prochaine version SNAPSHOT pour préparer le cycle suivant
+          NEXT_SNAPSHOT="${MAJOR}.${MINOR}.$((PATCH+2))-SNAPSHOT"
+          echo "current=${CURRENT}" >> $GITHUB_OUTPUT
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "next-snapshot=${NEXT_SNAPSHOT}" >> $GITHUB_OUTPUT
+          echo "📦 Release: ${CURRENT} → ${NEW_VERSION} (next: ${NEXT_SNAPSHOT})"
+
+      - name: Set release version in pom.xml
+        run: |
+          mvn versions:set -DnewVersion=${{ steps.release-version.outputs.version }} \
+            -DgenerateBackupPoms=false -q
+
+      - name: Build & Test release version
+        run: mvn ${{ inputs.maven-goals }} -U --no-transfer-progress
+
+      - name: SonarQube Analysis (release)
+        if: ${{ inputs.sonar-enabled }}
+        continue-on-error: true
+        run: |
+          mvn sonar:sonar \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.token=${{ secrets.SONAR_TOKEN }} \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
+            -q
+
+      - name: Deploy to Nexus releases (même JAR — pas de double build)
+        # deploy:deploy-file pousse le JAR déjà testé, sans recompilation
+        env:
+          NEXUS_URL: ${{ secrets.NEXUS_URL }}
+        run: |
+          VERSION="${{ steps.release-version.outputs.version }}"
+          JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | head -1)
+          GROUP_ID=$(mvn help:evaluate -Dexpression=project.groupId -q -DforceStdout)
+          ARTIFACT_ID=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
+          echo "Deploying ${JAR} → Nexus releases (${GROUP_ID}:${ARTIFACT_ID}:${VERSION})..."
+          mvn deploy:deploy-file \
+            -Durl="${NEXUS_URL}/repository/maven-releases/" \
+            -DrepositoryId=nexus-releases \
+            -Dfile="${JAR}" \
+            -DpomFile=pom.xml \
+            -DgroupId="${GROUP_ID}" \
+            -DartifactId="${ARTIFACT_ID}" \
+            -Dversion="${VERSION}" \
+            -Dpackaging=jar \
+            --no-transfer-progress \
+            -q && echo "✅ ${ARTIFACT_ID}:${VERSION} deployed to Nexus releases"
+
+      - name: Build & Push Docker image (version tag + latest)
+        run: |
+          VERSION="${{ steps.release-version.outputs.version }}"
+          IMAGE_VERSIONED="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:${VERSION}"
+          IMAGE_LATEST="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:latest"
+
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ secrets.REGISTRY_URL }} \
+            -u ${{ secrets.REGISTRY_USER }} --password-stdin
+
+          docker build -t "${IMAGE_VERSIONED}" -t "${IMAGE_LATEST}" .
+          docker push "${IMAGE_VERSIONED}"
+          docker push "${IMAGE_LATEST}"
+          echo "✅ Pushed ${IMAGE_VERSIONED} + ${IMAGE_LATEST}"
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit release version + tag
+        run: |
+          VERSION="${{ steps.release-version.outputs.version }}"
+          git add pom.xml
+          git commit -m "release: bump version to ${VERSION} [skip ci]"
+          git tag -a "v${VERSION}" -m "Release ${VERSION}"
+
+      - name: Bump to next SNAPSHOT + commit
+        run: |
+          NEXT="${{ steps.release-version.outputs.next-snapshot }}"
+          mvn versions:set -DnewVersion="${NEXT}" -DgenerateBackupPoms=false -q
+          git add pom.xml
+          git commit -m "chore: prepare next development version ${NEXT} [skip ci]"
+
+      - name: Push commits + tag
+        run: |
+          git push origin HEAD:${{ github.ref_name }}
+          git push origin "v${{ steps.release-version.outputs.version }}"
+          echo "✅ Pushed release commit + tag v${{ steps.release-version.outputs.version }}"
+
+      - name: Deploy release to VPS (prod)
+        run: |
+          VERSION="${{ steps.release-version.outputs.version }}"
+          IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:${VERSION}"
+          CONTAINER="${{ inputs.app-name }}"
+          PORT="${{ inputs.prod-port }}:${{ inputs.java-internal-port }}"
+          APP_NAME="${{ inputs.app-name }}"
+          JVM_OPTS="${{ inputs.jvm-opts }}"
+          MEMORY_LIMIT="${{ inputs.memory-limit }}"
+          UPLOAD_FOLDER="${{ inputs.upload-folder }}"
+
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            CONTAINER="$CONTAINER" \
+            PORT="$PORT" \
+            APP_NAME="$APP_NAME" \
+            JVM_OPTS="$JVM_OPTS" \
+            MEMORY_LIMIT="$MEMORY_LIMIT" \
+            UPLOAD_FOLDER="$UPLOAD_FOLDER" \
+            IMAGE="$IMAGE" \
+            bash << 'ENDSSH'
+            set -e
+
+            APP_DIR="/home/ubuntu/pierre/app/prod/${APP_NAME}"
+            LOG_DIR="/opt/sfd/logs-prod"
+
+            echo "🚀 Releasing ${CONTAINER} (${IMAGE})..."
+            mkdir -p "${APP_DIR}/upload" "${LOG_DIR}"
+            docker pull "${IMAGE}"
+
+            OLD_IMAGE=$(docker inspect "${CONTAINER}" --format='{{.Config.Image}}' 2>/dev/null || echo "")
+
+            DOCKER_NETWORK=$(docker inspect sql-server \
+              --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
+              2>/dev/null | awk '{print $1}')
+            [ -z "$DOCKER_NETWORK" ] && DOCKER_NETWORK="bridge"
+
+            cat > /tmp/rollback_${CONTAINER}.env << EOF
+            OLD_IMAGE=${OLD_IMAGE}
+            PROFILE=prod
+            PORT=${PORT}
+            APP_NAME=${APP_NAME}
+            JVM_OPTS=${JVM_OPTS}
+            MEMORY_LIMIT=${MEMORY_LIMIT}
+            UPLOAD_FOLDER=${UPLOAD_FOLDER}
+            APP_DIR=${APP_DIR}
+            LOG_DIR=${LOG_DIR}
+            DOCKER_NETWORK=${DOCKER_NETWORK}
+EOF
+
+            docker stop "${CONTAINER}" 2>/dev/null || true
+            docker rm "${CONTAINER}" 2>/dev/null || true
+
+            docker run -d \
+              --name "${CONTAINER}" \
+              --restart=always \
+              --memory="${MEMORY_LIMIT}" \
+              --memory-swap="${MEMORY_LIMIT}" \
+              --cpus=2 \
+              --network="${DOCKER_NETWORK}" \
+              -p "${PORT}" \
+              -e SPRING_PROFILES_ACTIVE="prod" \
+              -e UPLOAD_FOLDER="${UPLOAD_FOLDER}" \
+              -e JAVA_OPTS="${JVM_OPTS}" \
+              -v "${APP_DIR}/upload:${UPLOAD_FOLDER}" \
+              -v "${LOG_DIR}:/app/logs" \
+              "${IMAGE}"
+
+            echo "✅ Release container ${CONTAINER} started"
+          ENDSSH
+
+      - name: Health check (release)
+        run: |
+          PORT=${{ inputs.prod-port }}
+          CONTAINER="${{ inputs.app-name }}"
+          echo "Checking http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}"
+          sleep 30
+          for i in $(seq 1 15); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              "http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Release health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "Attempt $i/15 — status: ${STATUS}, waiting 10s..."
+            sleep 10
+          done
+          echo "❌ Release health check failed"
           exit 1
