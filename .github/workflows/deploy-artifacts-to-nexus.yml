@@ -4,8 +4,8 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  find-and-deploy:
-    name: Find JARs in Jenkins workspaces and deploy to Nexus
+  deploy:
+    name: Upload JARs from Jenkins archives to Nexus
     runs-on: ubuntu-latest
     steps:
       - name: Setup SSH key
@@ -15,22 +15,89 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Find and upload specific missing SNAPSHOT versions
+      - name: Upload missing SNAPSHOT JARs to Nexus
         run: |
           ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} /bin/bash << 'ENDSSH'
             NEXUS="https://nexus.evolticatechnologies.com"
             AUTH="admin:motdepasse"
+            JENKINS="/var/lib/jenkins"
 
-            echo "=== Searching all JAR files for needed versions ==="
-            # Search in Jenkins workspace and Maven repos
-            find /var/lib/jenkins /home/ubuntu /root -name "*.jar" 2>/dev/null | \
-              grep -E "security-oauth2|notification-api|fileupload-api|planificateur-api|number-generator|activity-tracking|sfd-demo-data|sfd-report-api|sfd-integration-api" | \
-              grep -v sources | grep -v javadoc | grep -v tests | head -100
+            # Upload a JAR+minimal POM to Nexus snapshots
+            upload() {
+              local JAR_FILE="$1"
+              local GROUP_ID="$2"    # e.g. com.kodzotech
+              local ARTIFACT_ID="$3" # e.g. security-oauth2
+              local VERSION="$4"     # e.g. 3.7.0-SNAPSHOT
 
-            echo "=== Jenkins workspaces ==="
-            ls /var/lib/jenkins/workspace/ 2>/dev/null | head -30
+              local GROUP_PATH=$(echo "$GROUP_ID" | tr '.' '/')
+              local BASE_URL="$NEXUS/repository/maven-snapshots/${GROUP_PATH}/${ARTIFACT_ID}/${VERSION}"
+              local JAR_NAME="${ARTIFACT_ID}-${VERSION}.jar"
+              local POM_NAME="${ARTIFACT_ID}-${VERSION}.pom"
 
-            echo "=== Specific version search ==="
-            find /var/lib/jenkins -name "security-oauth2*.jar" 2>/dev/null | head -20
-            find /var/lib/jenkins -name "notification-api*.jar" 2>/dev/null | head -20
+              echo "==> $ARTIFACT_ID:$VERSION"
+
+              # Upload JAR
+              HTTP=$(curl -s -k -o /dev/null -w "%{http_code}" -u "$AUTH" -X PUT \
+                --upload-file "$JAR_FILE" "${BASE_URL}/${JAR_NAME}")
+              echo "    JAR: HTTP $HTTP"
+
+              # Create and upload minimal POM
+              cat > /tmp/minimal.pom << POMEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>${GROUP_ID}</groupId>
+  <artifactId>${ARTIFACT_ID}</artifactId>
+  <version>${VERSION}</version>
+  <packaging>jar</packaging>
+</project>
+POMEOF
+              HTTP=$(curl -s -k -o /dev/null -w "%{http_code}" -u "$AUTH" -X PUT \
+                --upload-file /tmp/minimal.pom "${BASE_URL}/${POM_NAME}")
+              echo "    POM: HTTP $HTTP"
+            }
+
+            # Find latest build for a given artifact+version in Jenkins archives
+            find_jar() {
+              local ARTIFACT="$1"
+              local VERSION="$2"
+              # Search in both develop and master branches
+              find "$JENKINS/jobs/common/jobs/$ARTIFACT" -name "${ARTIFACT}-${VERSION}.jar" \
+                2>/dev/null | grep -v sources | grep -v javadoc | tail -1
+            }
+
+            echo "=== Uploading com.kodzotech artifacts ==="
+
+            JAR=$(find_jar "security-oauth2" "3.7.0-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "security-oauth2" "3.7.0-SNAPSHOT" || echo "NOT FOUND: security-oauth2-3.7.0-SNAPSHOT"
+
+            JAR=$(find_jar "notification-api" "2.11.0-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "notification-api" "2.11.0-SNAPSHOT" || echo "NOT FOUND: notification-api-2.11.0-SNAPSHOT"
+
+            JAR=$(find_jar "fileupload-api" "1.4.0-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "fileupload-api" "1.4.0-SNAPSHOT" || echo "NOT FOUND: fileupload-api-1.4.0-SNAPSHOT"
+
+            JAR=$(find_jar "planificateur-api" "0.0.3-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "planificateur-api" "0.0.3-SNAPSHOT" || echo "NOT FOUND: planificateur-api-0.0.3-SNAPSHOT"
+
+            JAR=$(find_jar "number-generator-api" "0.0.1-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "number-generator-api" "0.0.1-SNAPSHOT" || echo "NOT FOUND: number-generator-api-0.0.1-SNAPSHOT"
+
+            echo "=== Uploading com.evoltica artifacts ==="
+
+            JAR=$(find_jar "activity-tracking-starter" "1.0.0-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT" || {
+              # Try alternate path
+              JAR=$(find "$JENKINS" -name "activity-tracking-starter-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1)
+              [ -n "$JAR" ] && upload "$JAR" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT" || echo "NOT FOUND: activity-tracking-starter-1.0.0-SNAPSHOT"
+            }
+
+            echo "=== Uploading com.synapsesit artifacts ==="
+
+            for ARTIFACT in "sfd-demo-data" "sfd-report-api" "sfd-integration-api"; do
+              JAR=$(find "$JENKINS" -name "${ARTIFACT}-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1)
+              [ -n "$JAR" ] && upload "$JAR" "com.synapsesit" "$ARTIFACT" "1.0.0-SNAPSHOT" || echo "NOT FOUND: $ARTIFACT-1.0.0-SNAPSHOT"
+            done
+
+            echo "=== Done ==="
           ENDSSH
