@@ -158,8 +158,8 @@ Peterery21/sfd-agent-mobile-service:
 Peterery21/sfd-angular:
   template: angular
   app-name: sfd-angular
-  dev-port: 4621
-  prod-port: 4620
+  dev-port: 4630
+  prod-port: 4631
   release-branch: master
   e2e-enabled: true
   e2e-command: npm run e2e:chromium
@@ -172,6 +172,7 @@ Peterery21/sfd-portail-client-angular:
   prod-port: 4588
   release-branch: master
   e2e-enabled: false
+  e2e-command: ""
   json-server-port: 0
 
 Peterery21/sfd-demo-data:
