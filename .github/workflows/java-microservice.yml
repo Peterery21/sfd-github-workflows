@@ -58,6 +58,12 @@ on:
         required: false
       SONAR_HOST_URL:
         required: false
+      NEXUS_URL:
+        required: false
+      NEXUS_USER:
+        required: false
+      NEXUS_PASSWORD:
+        required: false
       VPS_HOST:
         required: true
       VPS_USER:
@@ -99,7 +105,7 @@ jobs:
           distribution: "temurin"
           cache: "maven"
 
-      - name: Configure Maven mirror (Nexus)
+      - name: Configure Maven (Nexus mirror)
         env:
           NEXUS_URL: ${{ secrets.NEXUS_URL }}
           NEXUS_USER: ${{ secrets.NEXUS_USER }}
@@ -117,131 +123,6 @@ jobs:
             "    <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
             '  </servers>' \
             '</settings>' > ~/.m2/settings.xml
-          echo "settings.xml written"
-          cat ~/.m2/settings.xml | sed 's|<password>.*</password>|<password>***</password>|g'
-
-      - name: Install internal SNAPSHOT libraries from VPS
-        run: |
-          mkdir -p /tmp/jars ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
-
-          JENKINS="/var/lib/jenkins"
-
-          copy_and_install() {
-            local NAME="$1" GROUP="$2" ARTIFACT="$3" VERSION="$4"
-            local BASE_VERSION="${VERSION%-SNAPSHOT}"
-            local GROUP_PATH="${GROUP//\./\/}"
-            # Skip if already installed from source build
-            if find ~/.m2/repository/${GROUP_PATH}/${ARTIFACT}/${VERSION}/ -name "*.jar" 2>/dev/null | grep -q .; then
-              echo "$ARTIFACT:$VERSION already in local cache, skipping VPS copy"
-              return 0
-            fi
-
-            # Find JAR: prefer .m2 cache (what Jenkins actually builds against) over job archives
-            local REMOTE_JAR=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.jar' 2>/dev/null | grep -v sources | xargs ls -t 2>/dev/null | head -1" 2>/dev/null)
-
-            # Find POM: search in .m2 repository for this artifact (may have timestamped filename)
-            local REMOTE_POM=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.pom' 2>/dev/null | grep -v sources | tail -1" 2>/dev/null)
-
-            if [ -z "$REMOTE_JAR" ]; then
-              # Fallback: try Jenkins job archives (named artifact-VERSION.jar)
-              REMOTE_JAR=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-                "find $JENKINS/jobs -name '${ARTIFACT}-${VERSION}.jar' 2>/dev/null | grep -v sources | grep -v javadoc | tail -1" 2>/dev/null)
-            fi
-
-            if [ -n "$REMOTE_JAR" ]; then
-              scp -q -i ~/.ssh/deploy_key "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${REMOTE_JAR}" "/tmp/jars/${NAME}.jar" 2>/dev/null
-              if [ -n "$REMOTE_POM" ]; then
-                scp -q -i ~/.ssh/deploy_key "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${REMOTE_POM}" "/tmp/jars/${NAME}.pom" 2>/dev/null
-                # Fix version in POM if it has timestamp (replace timestamped version with SNAPSHOT)
-                sed -i "s|<version>${BASE_VERSION}-[0-9]*\.[0-9]*-[0-9]*</version>|<version>${VERSION}</version>|g" "/tmp/jars/${NAME}.pom" 2>/dev/null || true
-                mvn install:install-file \
-                  -Dfile="/tmp/jars/${NAME}.jar" \
-                  -DpomFile="/tmp/jars/${NAME}.pom" \
-                  -q 2>/dev/null && echo "$ARTIFACT:$VERSION installed (with POM)" || echo "$ARTIFACT:$VERSION install failed"
-              else
-                mvn install:install-file \
-                  -Dfile="/tmp/jars/${NAME}.jar" \
-                  -DgroupId="$GROUP" \
-                  -DartifactId="$ARTIFACT" \
-                  -Dversion="$VERSION" \
-                  -Dpackaging=jar \
-                  -DgeneratePom=true \
-                  -q 2>/dev/null && echo "$ARTIFACT:$VERSION installed (generated POM)" || echo "$ARTIFACT:$VERSION install failed"
-              fi
-            else
-              echo "$ARTIFACT:$VERSION not found on VPS, will resolve from Nexus"
-            fi
-          }
-
-          copy_and_install "security-oauth2-3.6.0"      "com.kodzotech" "security-oauth2"          "3.6.0-SNAPSHOT"
-          copy_and_install "security-oauth2"          "com.kodzotech" "security-oauth2"          "3.7.0-SNAPSHOT"
-          copy_and_install "notification-api"         "com.kodzotech" "notification-api"         "2.11.0-SNAPSHOT"
-          copy_and_install "fileupload-api"           "com.kodzotech" "fileupload-api"           "1.4.0-SNAPSHOT"
-          copy_and_install "planificateur-api"        "com.kodzotech" "planificateur-api"        "0.0.3-SNAPSHOT"
-          copy_and_install "number-generator-api"     "com.kodzotech" "number-generator-api"     "0.0.1-SNAPSHOT"
-          copy_and_install "realtime-ws"               "com.evoltica" "realtime-ws"               "0.0.1-SNAPSHOT"
-          copy_and_install "activity-tracking-starter" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT"
-          # sfd-report-api, sfd-integration-api, sfd-demo-data: install from VPS as fallback only
-          copy_and_install "sfd-demo-data"            "com.synapsesit" "sfd-demo-data"            "1.0.0-SNAPSHOT"
-          copy_and_install "sfd-integration-api"      "com.synapsesit" "sfd-integration-api"      "1.0.0-SNAPSHOT"
-          copy_and_install "sfd-report-api"           "com.synapsesit" "sfd-report-api"           "1.0.0-SNAPSHOT"
-
-      - name: Build SFD internal libraries from source (override VPS)
-        env:
-          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
-        continue-on-error: true
-        run: |
-          # Build latest SFD libs from GitHub source, overriding potentially stale VPS JARs
-          # Build in dependency order: sfd-integration-api first, then sfd-report-api
-          build_lib() {
-            local REPO="$1" DIR="/tmp/libs/$2"
-            echo "Building $REPO..."
-            git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/Peterery21/${REPO}.git" "$DIR" 2>&1 | tail -1 \
-              || { echo "$REPO clone failed — using VPS JAR fallback"; return 0; }
-            mvn -f "$DIR/pom.xml" install -DskipTests -q --no-transfer-progress \
-              && echo "$REPO built from source OK" || echo "$REPO source build failed — using VPS JAR fallback"
-          }
-
-          # build_lib_as_version: build and re-install under a different version (for repos with updated version)
-          build_lib_as_version() {
-            local REPO="$1" DIR="/tmp/libs/$2" TARGET_VERSION="$3"
-            echo "Building $REPO (as $TARGET_VERSION)..."
-            git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/Peterery21/${REPO}.git" "$DIR" 2>&1 | tail -1 \
-              || { echo "$REPO clone failed — using VPS JAR fallback"; return 0; }
-            # Build with original version, then re-install under target version
-            mvn -f "$DIR/pom.xml" install -DskipTests -q --no-transfer-progress 2>/dev/null || true
-            # Re-install JAR under the expected SNAPSHOT version
-            local JAR=$(find "$DIR/target" -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -1)
-            local POM="$DIR/pom.xml"
-            local GROUP=$(mvn -f "$POM" help:evaluate -Dexpression=project.groupId -q -DforceStdout 2>/dev/null)
-            local ARTIFACT=$(mvn -f "$POM" help:evaluate -Dexpression=project.artifactId -q -DforceStdout 2>/dev/null)
-            if [ -n "$JAR" ]; then
-              mvn install:install-file \
-                -Dfile="$JAR" \
-                -DgroupId="$GROUP" \
-                -DartifactId="$ARTIFACT" \
-                -Dversion="$TARGET_VERSION" \
-                -Dpackaging=jar \
-                -DgeneratePom=true \
-                -q && echo "$ARTIFACT:$TARGET_VERSION installed (from $REPO source)" || echo "$ARTIFACT:$TARGET_VERSION install failed"
-            fi
-          }
-
-          mkdir -p /tmp/libs
-          # Build common libs from source (may have newer version than VPS JARs)
-          # Build realtime-ws FIRST so security-oauth2 and fat JAR bundle the correct version
-          build_lib_as_version "common-realtime-ws" "common-realtime-ws" "0.0.1-SNAPSHOT"
-          build_lib_as_version "common-security-oauth2" "common-security-oauth2" "3.7.0-SNAPSHOT"
-          build_lib_as_version "common-activity-tracking" "common-activity-tracking" "1.0.0-SNAPSHOT"
-          # Build SFD libs in dep order
-          build_lib "sfd-integration-api" "sfd-integration-api"
-          build_lib "sfd-report-api"      "sfd-report-api"
-          build_lib "sfd-demo-data"       "sfd-demo-data"
 
       - name: Determine version
         id: version
@@ -250,20 +131,16 @@ jobs:
           BRANCH=${GITHUB_REF_NAME}
           if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
             echo "version=latest" >> $GITHUB_OUTPUT
-            echo "env=prod" >> $GITHUB_OUTPUT
           else
             echo "version=${RUN_NUM}-SNAPSHOT" >> $GITHUB_OUTPUT
-            echo "env=dev" >> $GITHUB_OUTPUT
           fi
 
       - name: Build & Test
-        env:
-          NEXUS_USER: ${{ secrets.NEXUS_USER }}
-          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: mvn ${{ inputs.maven-goals }} -U --no-transfer-progress
 
       - name: SonarQube Analysis
         if: ${{ inputs.sonar-enabled }}
+        continue-on-error: true
         run: |
           mvn sonar:sonar \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
@@ -286,7 +163,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     outputs:
-      image-suffix: ${{ steps.tag.outputs.image-suffix }}
       container-name: ${{ steps.tag.outputs.container-name }}
       port-mapping: ${{ steps.tag.outputs.port-mapping }}
       spring-profile: ${{ steps.tag.outputs.spring-profile }}
@@ -307,41 +183,32 @@ jobs:
           BRANCH=${GITHUB_REF_NAME}
           if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
             IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:latest"
-            IMAGE_SUFFIX="${{ inputs.app-name }}:latest"
             CONTAINER="${{ inputs.app-name }}"
             PORT="${{ inputs.prod-port }}:${{ inputs.java-internal-port }}"
             PROFILE="prod"
-            APP_DIR="/home/ubuntu/pierre/app/prod/${{ inputs.app-name }}"
           else
             IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}-dev:${{ needs.build.outputs.version }}"
-            IMAGE_SUFFIX="${{ inputs.app-name }}-dev:${{ needs.build.outputs.version }}"
             CONTAINER="${{ inputs.app-name }}-dev"
             PORT="${{ inputs.dev-port }}:${{ inputs.java-internal-port }}"
             PROFILE="dev"
-            APP_DIR="/home/ubuntu/pierre/app/dev/${{ inputs.app-name }}"
           fi
           echo "image-tag=${IMAGE}" >> $GITHUB_OUTPUT
-          echo "image-suffix=${IMAGE_SUFFIX}" >> $GITHUB_OUTPUT
           echo "container-name=${CONTAINER}" >> $GITHUB_OUTPUT
           echo "port-mapping=${PORT}" >> $GITHUB_OUTPUT
           echo "spring-profile=${PROFILE}" >> $GITHUB_OUTPUT
-          echo "app-dir=${APP_DIR}" >> $GITHUB_OUTPUT
 
       - name: Login to Docker Registry
         run: |
           echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ secrets.REGISTRY_URL }} \
             -u ${{ secrets.REGISTRY_USER }} --password-stdin
 
-      - name: Build Docker image
+      - name: Build & Push Docker image
         run: |
           docker build -t ${{ steps.tag.outputs.image-tag }} .
-
-      - name: Push Docker image
-        run: |
           docker push ${{ steps.tag.outputs.image-tag }}
 
   # ─────────────────────────────────────────
-  # JOB 3 : Deploy via SSH
+  # JOB 3 : Deploy via SSH + Health Check
   # ─────────────────────────────────────────
   deploy:
     name: Deploy to VPS
@@ -356,44 +223,66 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Deploy container
+      - name: Deploy container via SSH
+        env:
+          PROFILE: ${{ needs.docker.outputs.spring-profile }}
+          CONTAINER: ${{ needs.docker.outputs.container-name }}
+          PORT: ${{ needs.docker.outputs.port-mapping }}
+          APP_NAME: ${{ inputs.app-name }}
+          JVM_OPTS: ${{ inputs.jvm-opts }}
+          MEMORY_LIMIT: ${{ inputs.memory-limit }}
+          UPLOAD_FOLDER: ${{ inputs.upload-folder }}
         run: |
-          PROFILE="${{ needs.docker.outputs.spring-profile }}"
+          # Reconstruct full image URL (avoids GitHub secret masking in outputs)
           if [ "$PROFILE" = "prod" ]; then
-            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:latest"
+            IMAGE="${{ secrets.REGISTRY_URL }}/${APP_NAME}:latest"
           else
-            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}-dev:${{ needs.build.outputs.version }}"
+            IMAGE="${{ secrets.REGISTRY_URL }}/${APP_NAME}-dev:${{ needs.build.outputs.version }}"
           fi
-          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            IMAGE="$IMAGE" \
-            CONTAINER="${{ needs.docker.outputs.container-name }}" \
-            PORT="${{ needs.docker.outputs.port-mapping }}" \
+
+          ssh -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             PROFILE="$PROFILE" \
+            CONTAINER="$CONTAINER" \
+            PORT="$PORT" \
+            APP_NAME="$APP_NAME" \
+            JVM_OPTS="$JVM_OPTS" \
+            MEMORY_LIMIT="$MEMORY_LIMIT" \
+            UPLOAD_FOLDER="$UPLOAD_FOLDER" \
+            IMAGE="$IMAGE" \
             bash << 'ENDSSH'
             set -e
-            APP_DIR="/home/ubuntu/pierre/app/${PROFILE}/${{ inputs.app-name }}"
+
+            APP_DIR="/home/ubuntu/pierre/app/${PROFILE}/${APP_NAME}"
             LOG_DIR="/opt/sfd/logs-${PROFILE}"
 
-            echo "🚀 Deploying ${CONTAINER}..."
+            echo "🚀 Deploying ${CONTAINER} (${IMAGE})..."
 
             # Préparer les dossiers
             mkdir -p "${APP_DIR}/upload" "${LOG_DIR}"
 
-            # Pull nouvelle image
+            # Pull la nouvelle image
             docker pull "${IMAGE}"
 
-            # Stocker le nom de l'ancienne image pour rollback
+            # Sauvegarder l'ancienne image pour rollback
             OLD_IMAGE=$(docker inspect "${CONTAINER}" --format='{{.Config.Image}}' 2>/dev/null || echo "")
 
             # Arrêter et supprimer l'ancien container
             docker stop "${CONTAINER}" 2>/dev/null || true
             docker rm "${CONTAINER}" 2>/dev/null || true
 
-            # Discover Docker network (use same network as sql-server-dev if available)
-            DOCKER_NETWORK=$(docker inspect sql-server-dev --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | awk '{print $1}')
-            if [ -z "$DOCKER_NETWORK" ]; then
-              # Fallback: try any sfd-related container
-              DOCKER_NETWORK=$(docker inspect sql-server --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null | awk '{print $1}')
+            # Choisir le réseau Docker selon l'environnement
+            # dev → rejoindre le réseau de sql-server-dev
+            # prod → rejoindre le réseau de sql-server
+            if [ "$PROFILE" = "prod" ]; then
+              DOCKER_NETWORK=$(docker inspect sql-server \
+                --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
+                2>/dev/null | awk '{print $1}')
+            else
+              DOCKER_NETWORK=$(docker inspect sql-server-dev \
+                --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
+                2>/dev/null | awk '{print $1}')
             fi
             if [ -z "$DOCKER_NETWORK" ]; then
               DOCKER_NETWORK="bridge"
@@ -404,46 +293,69 @@ jobs:
             docker run -d \
               --name "${CONTAINER}" \
               --restart=always \
-              --memory="${{ inputs.memory-limit }}" \
-              --memory-swap="${{ inputs.memory-limit }}" \
+              --memory="${MEMORY_LIMIT}" \
+              --memory-swap="${MEMORY_LIMIT}" \
               --cpus=2 \
               --network="${DOCKER_NETWORK}" \
               -p "${PORT}" \
               -e SPRING_PROFILES_ACTIVE="${PROFILE}" \
-              -e UPLOAD_FOLDER="${{ inputs.upload-folder }}" \
-              -e JAVA_OPTS="${{ inputs.jvm-opts }}" \
-              -v "${APP_DIR}/upload:${{ inputs.upload-folder }}" \
+              -e UPLOAD_FOLDER="${UPLOAD_FOLDER}" \
+              -e JAVA_OPTS="${JVM_OPTS}" \
+              -v "${APP_DIR}/upload:${UPLOAD_FOLDER}" \
               -v "${LOG_DIR}:/app/logs" \
               "${IMAGE}"
 
-            echo "✅ Container ${CONTAINER} started"
+            echo "✅ Container ${CONTAINER} started on network ${DOCKER_NETWORK}"
+            echo "OLD_IMAGE=${OLD_IMAGE}" > /tmp/rollback_${CONTAINER}.env
           ENDSSH
 
       - name: Health check
         run: |
           PORT=$(echo "${{ needs.docker.outputs.port-mapping }}" | cut -d: -f1)
           CONTAINER="${{ needs.docker.outputs.container-name }}"
-          echo "Checking health on port ${PORT} via SSH..."
-          # Initial wait for Spring Boot startup
-          sleep 20
+          echo "Checking http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}"
+          # Attente initiale démarrage Spring Boot
+          sleep 30
           for i in $(seq 1 15); do
-            STATUS=$(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "curl -s -o /dev/null -w '%{http_code}' --max-time 5 'http://localhost:${PORT}${{ inputs.health-path }}'; true" 2>/dev/null)
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 10 \
+              "http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}" || echo "000")
             if [ "$STATUS" = "200" ]; then
               echo "✅ Health check passed (attempt $i)"
               exit 0
             fi
             echo "Attempt $i/15 — status: ${STATUS}, waiting 10s..."
-            # Show container status on attempt 3 for diagnostics
+            # Diagnostics à la tentative 3
             if [ "$i" = "3" ]; then
               ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
                 ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-                "docker inspect --format='{{.State.Status}}' ${CONTAINER} 2>/dev/null && docker logs --tail 20 ${CONTAINER} 2>&1 || true"
+                "docker inspect --format='Status: {{.State.Status}}' ${CONTAINER} 2>/dev/null; docker logs --tail 30 ${CONTAINER} 2>&1 || true"
             fi
             sleep 10
           done
-          echo "❌ Health check failed after 15 attempts — rolling back"
-          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            "docker stop ${{ needs.docker.outputs.container-name }} || true"
+
+          echo "❌ Health check failed — rolling back"
+          # Rollback : redémarrer l'ancienne image si elle existe
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            CONTAINER="${CONTAINER}" \
+            bash << 'ROLLBACK'
+            source /tmp/rollback_${CONTAINER}.env 2>/dev/null || OLD_IMAGE=""
+            docker stop "${CONTAINER}" 2>/dev/null || true
+            docker rm "${CONTAINER}" 2>/dev/null || true
+            if [ -n "$OLD_IMAGE" ]; then
+              echo "↩️ Rolling back to ${OLD_IMAGE}"
+              DOCKER_NETWORK=$(docker inspect sql-server-dev \
+                --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
+                2>/dev/null | awk '{print $1}')
+              [ -z "$DOCKER_NETWORK" ] && DOCKER_NETWORK="bridge"
+              docker run -d \
+                --name "${CONTAINER}" \
+                --restart=always \
+                --network="${DOCKER_NETWORK}" \
+                "${OLD_IMAGE}" && echo "✅ Rollback successful" || echo "❌ Rollback failed"
+            else
+              echo "No previous image to roll back to"
+            fi
+          ROLLBACK
           exit 1
