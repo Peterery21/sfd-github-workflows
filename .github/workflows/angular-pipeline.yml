@@ -187,12 +187,12 @@ jobs:
             fi
 
             # Sauvegarder tous les paramètres pour le rollback
-            cat > /tmp/rollback_${CONTAINER}.env << EOF
-            OLD_IMAGE=${OLD_IMAGE}
-            PORT=${PORT}
-            APP_ENV=${APP_ENV}
-            EXTRA_ARGS=${EXTRA_ARGS}
-EOF
+            {
+              echo "OLD_IMAGE=${OLD_IMAGE}"
+              echo "PORT=${PORT}"
+              echo "APP_ENV=${APP_ENV}"
+              echo "EXTRA_ARGS=${EXTRA_ARGS}"
+            } > /tmp/rollback_${CONTAINER}.env
 
             # Arrêter et supprimer l'ancien container
             docker stop "${CONTAINER}" 2>/dev/null || true
