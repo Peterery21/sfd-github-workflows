@@ -86,6 +86,38 @@ jobs:
           distribution: "temurin"
           cache: "maven"
 
+      - name: Configure Maven settings (Nexus)
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml << 'EOF'
+          <settings>
+            <mirrors>
+              <mirror>
+                <id>nexus-public</id>
+                <mirrorOf>*</mirrorOf>
+                <url>${{ secrets.NEXUS_URL }}/repository/maven-public/</url>
+              </mirror>
+            </mirrors>
+            <servers>
+              <server>
+                <id>nexus-public</id>
+                <username>${{ secrets.NEXUS_USER }}</username>
+                <password>${{ secrets.NEXUS_PASSWORD }}</password>
+              </server>
+              <server>
+                <id>nexus-snapshots</id>
+                <username>${{ secrets.NEXUS_USER }}</username>
+                <password>${{ secrets.NEXUS_PASSWORD }}</password>
+              </server>
+              <server>
+                <id>nexus-releases</id>
+                <username>${{ secrets.NEXUS_USER }}</username>
+                <password>${{ secrets.NEXUS_PASSWORD }}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
       - name: Determine version
         id: version
         run: |
