@@ -71,9 +71,10 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+          cache-dependency-path: "package.json"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: Set version and environment
         id: version
@@ -271,9 +272,10 @@ jobs:
         with:
           node-version: "20"
           cache: "npm"
+          cache-dependency-path: "package.json"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: Install Playwright browsers + system deps
         # Comme Jenkins: npx playwright install chromium + install-deps chromium
