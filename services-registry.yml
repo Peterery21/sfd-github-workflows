@@ -1,6 +1,28 @@
+_meta:
+  schema-version: 1
+  last-updated: 2026-03-22
+  description: >
+    Registre centralisé des services SFD ERP-UEMOA.
+    Modifier CE FICHIER pour ajouter/modifier un service.
+    Le dispatcher.yml lit ce fichier via github.repository.
+
 # services-registry.yml
 # Clé = github.repository (org/repo) — source de vérité unique pour tous les services SFD
 # Modifier ICI quand un port ou une config change. Jamais dans les repos de service.
+
+# ── Field contract per template ─────────────────────────────────────────
+# java          : template, app-name, dev-port, prod-port, internal-port,
+#                 health-path, release-branch
+# angular       : template, app-name, dev-port, prod-port, release-branch,
+#                 e2e-enabled, e2e-command (opt), json-server-port (opt)
+# maven-library : template, app-name, sonar-enabled, nexus-deploy
+#                 (no port, no release-branch)
+
+# ── internal-port note ───────────────────────────────────────────────────
+# internal-port = the port the JVM listens on inside the Docker container.
+# In this project dev-port == internal-port (no JVM remapping).
+# The distinction matters for Docker: -p dev-port:internal-port (dev)
+#                                 vs  -p prod-port:internal-port (prod).
 
 Peterery21/sfd-commun-service:
   template: java
@@ -59,9 +81,9 @@ Peterery21/sfd-credit-service:
 Peterery21/sfd-stock-service:
   template: java
   app-name: sfd-stock
-  dev-port: 4601
+  dev-port: 4606
   prod-port: 4619
-  internal-port: 4601
+  internal-port: 4606
   health-path: /api/stock/actuator/health
   release-branch: master
 
@@ -101,6 +123,7 @@ Peterery21/sfd-portail-client-service:
   health-path: /api/portail-client/actuator/health
   release-branch: master
 
+# Repos created after 2022: GitHub default branch is 'main'
 Peterery21/sfd-immobilisation-service:
   template: java
   app-name: sfd-immobilisation
@@ -172,8 +195,6 @@ Peterery21/sfd-portail-client-angular:
   prod-port: 4588
   release-branch: master
   e2e-enabled: false
-  e2e-command: ""
-  json-server-port: 0
 
 Peterery21/sfd-demo-data:
   template: maven-library
