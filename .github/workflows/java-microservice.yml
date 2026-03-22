@@ -406,10 +406,11 @@ jobs:
       - name: Health check
         run: |
           PORT=$(echo "${{ needs.docker.outputs.port-mapping }}" | cut -d: -f1)
-          echo "Checking health on port ${PORT}..."
+          echo "Checking health on port ${PORT} via SSH..."
           for i in $(seq 1 15); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              "http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}" || echo "000")
+            STATUS=$(ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+              "curl -s -o /dev/null -w '%{http_code}' --max-time 5 'http://localhost:${PORT}${{ inputs.health-path }}'" 2>/dev/null || echo "000")
             if [ "$STATUS" = "200" ]; then
               echo "✅ Health check passed (attempt $i)"
               exit 0
