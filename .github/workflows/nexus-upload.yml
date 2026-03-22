@@ -1,0 +1,90 @@
+name: Nexus Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run only (list files without uploading)'
+        type: boolean
+        default: false
+
+jobs:
+  upload:
+    name: Upload JARs from Jenkins archives to Nexus
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Upload missing SNAPSHOT JARs to Nexus
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} /bin/bash << 'ENDSSH'
+            NEXUS="https://nexus.evolticatechnologies.com"
+            AUTH="admin:motdepasse"
+            JENKINS="/var/lib/jenkins"
+
+            upload() {
+              local JAR_FILE="$1"
+              local GROUP_ID="$2"
+              local ARTIFACT_ID="$3"
+              local VERSION="$4"
+              local GROUP_PATH=$(echo "$GROUP_ID" | tr '.' '/')
+              local BASE_URL="$NEXUS/repository/maven-snapshots/${GROUP_PATH}/${ARTIFACT_ID}/${VERSION}"
+
+              echo "==> $ARTIFACT_ID:$VERSION"
+
+              HTTP=$(curl -s -k -o /dev/null -w "%{http_code}" -u "$AUTH" -X PUT \
+                --upload-file "$JAR_FILE" "${BASE_URL}/${ARTIFACT_ID}-${VERSION}.jar")
+              echo "    JAR: HTTP $HTTP"
+
+              cat > /tmp/minimal.pom << POMEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>${GROUP_ID}</groupId>
+  <artifactId>${ARTIFACT_ID}</artifactId>
+  <version>${VERSION}</version>
+  <packaging>jar</packaging>
+</project>
+POMEOF
+              HTTP=$(curl -s -k -o /dev/null -w "%{http_code}" -u "$AUTH" -X PUT \
+                --upload-file /tmp/minimal.pom "${BASE_URL}/${ARTIFACT_ID}-${VERSION}.pom")
+              echo "    POM: HTTP $HTTP"
+            }
+
+            find_jar() {
+              find "$JENKINS/jobs" -name "${1}-${2}.jar" 2>/dev/null | grep -v sources | grep -v javadoc | tail -1
+            }
+
+            echo "=== com.kodzotech ==="
+            JAR=$(find_jar "security-oauth2" "3.7.0-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "security-oauth2" "3.7.0-SNAPSHOT" || echo "NOT FOUND: security-oauth2-3.7.0-SNAPSHOT"
+
+            JAR=$(find_jar "notification-api" "2.11.0-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "notification-api" "2.11.0-SNAPSHOT" || echo "NOT FOUND: notification-api-2.11.0-SNAPSHOT"
+
+            JAR=$(find_jar "fileupload-api" "1.4.0-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "fileupload-api" "1.4.0-SNAPSHOT" || echo "NOT FOUND: fileupload-api-1.4.0-SNAPSHOT"
+
+            JAR=$(find_jar "planificateur-api" "0.0.3-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "planificateur-api" "0.0.3-SNAPSHOT" || echo "NOT FOUND: planificateur-api-0.0.3-SNAPSHOT"
+
+            JAR=$(find_jar "number-generator-api" "0.0.1-SNAPSHOT")
+            [ -n "$JAR" ] && upload "$JAR" "com.kodzotech" "number-generator-api" "0.0.1-SNAPSHOT" || echo "NOT FOUND: number-generator-api-0.0.1-SNAPSHOT"
+
+            echo "=== com.evoltica ==="
+            JAR=$(find "$JENKINS" -name "activity-tracking-starter-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1)
+            [ -n "$JAR" ] && upload "$JAR" "com.evoltica" "activity-tracking-starter" "1.0.0-SNAPSHOT" || echo "NOT FOUND: activity-tracking-starter-1.0.0-SNAPSHOT"
+
+            echo "=== com.synapsesit ==="
+            for ARTIFACT in "sfd-demo-data" "sfd-report-api" "sfd-integration-api"; do
+              JAR=$(find "$JENKINS" -name "${ARTIFACT}-1.0.0-SNAPSHOT.jar" 2>/dev/null | grep -v sources | tail -1)
+              [ -n "$JAR" ] && upload "$JAR" "com.synapsesit" "$ARTIFACT" "1.0.0-SNAPSHOT" || echo "NOT FOUND: $ARTIFACT-1.0.0-SNAPSHOT"
+            done
+
+            echo "=== Done ==="
+          ENDSSH
