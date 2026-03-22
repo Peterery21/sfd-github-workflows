@@ -106,9 +106,10 @@ jobs:
             '</settings>' > ~/.m2/settings.xml
           echo "settings.xml written"
           cat ~/.m2/settings.xml | sed 's|<password>.*</password>|<password>***</password>|g'
-          # Clear any stale cached metadata for internal artifacts
-          find ~/.m2/repository/com/kodzotech ~/.m2/repository/com/evoltica ~/.m2/repository/com/synapsesit \
-            -name "*.lastUpdated" -delete 2>/dev/null || true
+          # Remove internal artifacts from local repo to force fresh download from Nexus
+          rm -rf ~/.m2/repository/com/kodzotech \
+                 ~/.m2/repository/com/evoltica \
+                 ~/.m2/repository/com/synapsesit 2>/dev/null || true
 
       - name: Determine version
         id: version
