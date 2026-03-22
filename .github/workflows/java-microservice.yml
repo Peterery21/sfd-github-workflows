@@ -265,16 +265,10 @@ jobs:
             # Pull la nouvelle image
             docker pull "${IMAGE}"
 
-            # Sauvegarder l'ancienne image pour rollback
+            # Sauvegarder l'ancienne image AVANT arrêt (comme Jenkins: DockerUtils.currentImage)
             OLD_IMAGE=$(docker inspect "${CONTAINER}" --format='{{.Config.Image}}' 2>/dev/null || echo "")
 
-            # Arrêter et supprimer l'ancien container
-            docker stop "${CONTAINER}" 2>/dev/null || true
-            docker rm "${CONTAINER}" 2>/dev/null || true
-
-            # Choisir le réseau Docker selon l'environnement
-            # dev → rejoindre le réseau de sql-server-dev
-            # prod → rejoindre le réseau de sql-server
+            # Choisir le réseau Docker selon l'environnement (dev → sql-server-dev, prod → sql-server)
             if [ "$PROFILE" = "prod" ]; then
               DOCKER_NETWORK=$(docker inspect sql-server \
                 --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
@@ -284,10 +278,27 @@ jobs:
                 --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
                 2>/dev/null | awk '{print $1}')
             fi
-            if [ -z "$DOCKER_NETWORK" ]; then
-              DOCKER_NETWORK="bridge"
-            fi
+            [ -z "$DOCKER_NETWORK" ] && DOCKER_NETWORK="bridge"
             echo "Using Docker network: ${DOCKER_NETWORK}"
+
+            # Sauvegarder TOUS les paramètres nécessaires au rollback
+            # (Jenkins rerun avec exactement la même config: env, ports, volumes, network, extraArgs)
+            cat > /tmp/rollback_${CONTAINER}.env << EOF
+            OLD_IMAGE=${OLD_IMAGE}
+            PROFILE=${PROFILE}
+            PORT=${PORT}
+            APP_NAME=${APP_NAME}
+            JVM_OPTS=${JVM_OPTS}
+            MEMORY_LIMIT=${MEMORY_LIMIT}
+            UPLOAD_FOLDER=${UPLOAD_FOLDER}
+            APP_DIR=${APP_DIR}
+            LOG_DIR=${LOG_DIR}
+            DOCKER_NETWORK=${DOCKER_NETWORK}
+EOF
+
+            # Arrêter et supprimer l'ancien container
+            docker stop "${CONTAINER}" 2>/dev/null || true
+            docker rm "${CONTAINER}" 2>/dev/null || true
 
             # Démarrer le nouveau container
             docker run -d \
@@ -306,7 +317,6 @@ jobs:
               "${IMAGE}"
 
             echo "✅ Container ${CONTAINER} started on network ${DOCKER_NETWORK}"
-            echo "OLD_IMAGE=${OLD_IMAGE}" > /tmp/rollback_${CONTAINER}.env
           ENDSSH
 
       - name: Health check
@@ -334,28 +344,37 @@ jobs:
             sleep 10
           done
 
-          echo "❌ Health check failed — rolling back"
-          # Rollback : redémarrer l'ancienne image si elle existe
+          echo "❌ Health check failed — rolling back (like Jenkins rollbackOnFailure)"
+          # Rollback identique à Jenkins: DockerUtils.stopAndRemove + DockerUtils.runContainer(previousImage, pull:false)
+          # Tous les paramètres (env, volumes, network, memory) sont restaurés depuis le fichier de sauvegarde
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             CONTAINER="${CONTAINER}" \
             bash << 'ROLLBACK'
-            source /tmp/rollback_${CONTAINER}.env 2>/dev/null || OLD_IMAGE=""
+            set -a; source /tmp/rollback_${CONTAINER}.env 2>/dev/null; set +a
+            if [ -z "$OLD_IMAGE" ]; then
+              echo "No previous image — cannot roll back"
+              exit 0
+            fi
+            echo "↩️ Rolling back to ${OLD_IMAGE}"
             docker stop "${CONTAINER}" 2>/dev/null || true
             docker rm "${CONTAINER}" 2>/dev/null || true
-            if [ -n "$OLD_IMAGE" ]; then
-              echo "↩️ Rolling back to ${OLD_IMAGE}"
-              DOCKER_NETWORK=$(docker inspect sql-server-dev \
-                --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
-                2>/dev/null | awk '{print $1}')
-              [ -z "$DOCKER_NETWORK" ] && DOCKER_NETWORK="bridge"
-              docker run -d \
-                --name "${CONTAINER}" \
-                --restart=always \
-                --network="${DOCKER_NETWORK}" \
-                "${OLD_IMAGE}" && echo "✅ Rollback successful" || echo "❌ Rollback failed"
-            else
-              echo "No previous image to roll back to"
-            fi
+            # Relancer avec exactement la même config (pull:false comme Jenkins)
+            docker run -d \
+              --name "${CONTAINER}" \
+              --restart=always \
+              --memory="${MEMORY_LIMIT}" \
+              --memory-swap="${MEMORY_LIMIT}" \
+              --cpus=2 \
+              --network="${DOCKER_NETWORK}" \
+              -p "${PORT}" \
+              -e SPRING_PROFILES_ACTIVE="${PROFILE}" \
+              -e UPLOAD_FOLDER="${UPLOAD_FOLDER}" \
+              -e JAVA_OPTS="${JVM_OPTS}" \
+              -v "${APP_DIR}/upload:${UPLOAD_FOLDER}" \
+              -v "${LOG_DIR}:/app/logs" \
+              "${OLD_IMAGE}" \
+              && echo "✅ Rollback to ${OLD_IMAGE} successful" \
+              || echo "❌ Rollback failed"
           ROLLBACK
           exit 1
