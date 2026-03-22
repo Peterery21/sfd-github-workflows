@@ -205,7 +205,36 @@ jobs:
             mvn -f "$DIR/pom.xml" install -DskipTests -q --no-transfer-progress \
               && echo "$REPO built from source OK" || echo "$REPO source build failed — using VPS JAR fallback"
           }
+
+          # build_lib_as_version: build and re-install under a different version (for repos with updated version)
+          build_lib_as_version() {
+            local REPO="$1" DIR="/tmp/libs/$2" TARGET_VERSION="$3"
+            echo "Building $REPO (as $TARGET_VERSION)..."
+            git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/Peterery21/${REPO}.git" "$DIR" 2>&1 | tail -1 \
+              || { echo "$REPO clone failed — using VPS JAR fallback"; return 0; }
+            # Build with original version, then re-install under target version
+            mvn -f "$DIR/pom.xml" install -DskipTests -q --no-transfer-progress 2>/dev/null || true
+            # Re-install JAR under the expected SNAPSHOT version
+            local JAR=$(find "$DIR/target" -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" | head -1)
+            local POM="$DIR/pom.xml"
+            local GROUP=$(mvn -f "$POM" help:evaluate -Dexpression=project.groupId -q -DforceStdout 2>/dev/null)
+            local ARTIFACT=$(mvn -f "$POM" help:evaluate -Dexpression=project.artifactId -q -DforceStdout 2>/dev/null)
+            if [ -n "$JAR" ]; then
+              mvn install:install-file \
+                -Dfile="$JAR" \
+                -DgroupId="$GROUP" \
+                -DartifactId="$ARTIFACT" \
+                -Dversion="$TARGET_VERSION" \
+                -Dpackaging=jar \
+                -DgeneratePom=true \
+                -q && echo "$ARTIFACT:$TARGET_VERSION installed (from $REPO source)" || echo "$ARTIFACT:$TARGET_VERSION install failed"
+            fi
+          }
+
           mkdir -p /tmp/libs
+          # Build common libs from source (may have newer version than VPS JARs)
+          build_lib_as_version "common-activity-tracking" "common-activity-tracking" "1.0.0-SNAPSHOT"
+          # Build SFD libs in dep order
           build_lib "sfd-integration-api" "sfd-integration-api"
           build_lib "sfd-report-api"      "sfd-report-api"
           build_lib "sfd-demo-data"       "sfd-demo-data"
