@@ -178,13 +178,24 @@ Peterery21/sfd-agent-mobile-service:
   health-path: /api/agent-mobile/actuator/health
   release-branch: main
 
+Peterery21/sfd-admin-angular:
+  template: angular
+  app-name: sfd-angular
+  dev-port: 4630
+  prod-port: 4631
+  release-branch: master
+  e2e-enabled: false
+  e2e-command: npm run e2e:chromium
+  json-server-port: 3000
+
+# Alias legacy (conservé pour compatibilité si jamais le repo sfd-angular existe)
 Peterery21/sfd-angular:
   template: angular
   app-name: sfd-angular
   dev-port: 4630
   prod-port: 4631
   release-branch: master
-  e2e-enabled: true
+  e2e-enabled: false
   e2e-command: npm run e2e:chromium
   json-server-port: 3000
 
