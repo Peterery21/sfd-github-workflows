@@ -148,6 +148,20 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
             -q
 
+      - name: Deploy SNAPSHOT to Nexus
+        # Comme Jenkins: deploySteps = 'mvn deploy -DskipTests' sur les branches stables (develop, master)
+        # Uniquement sur les versions SNAPSHOT (pas de re-upload de releases)
+        if: ${{ github.ref_name == 'develop' || github.ref_name == inputs.release-branch }}
+        continue-on-error: true
+        run: |
+          POM_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+          if [[ "$POM_VERSION" == *"-SNAPSHOT" ]]; then
+            echo "Deploying ${POM_VERSION} to Nexus..."
+            mvn deploy -DskipTests -q --no-transfer-progress
+          else
+            echo "Release version ${POM_VERSION} — skipping Nexus deploy (releases go via Release workflow)"
+          fi
+
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
