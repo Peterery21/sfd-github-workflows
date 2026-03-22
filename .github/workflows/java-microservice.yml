@@ -282,7 +282,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     outputs:
-      image-tag: ${{ steps.tag.outputs.image-tag }}
+      image-suffix: ${{ steps.tag.outputs.image-suffix }}
       container-name: ${{ steps.tag.outputs.container-name }}
       port-mapping: ${{ steps.tag.outputs.port-mapping }}
       spring-profile: ${{ steps.tag.outputs.spring-profile }}
@@ -303,18 +303,21 @@ jobs:
           BRANCH=${GITHUB_REF_NAME}
           if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
             IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:latest"
+            IMAGE_SUFFIX="${{ inputs.app-name }}:latest"
             CONTAINER="${{ inputs.app-name }}"
             PORT="${{ inputs.prod-port }}:${{ inputs.java-internal-port }}"
             PROFILE="prod"
             APP_DIR="/home/ubuntu/pierre/app/prod/${{ inputs.app-name }}"
           else
             IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}-dev:${{ needs.build.outputs.version }}"
+            IMAGE_SUFFIX="${{ inputs.app-name }}-dev:${{ needs.build.outputs.version }}"
             CONTAINER="${{ inputs.app-name }}-dev"
             PORT="${{ inputs.dev-port }}:${{ inputs.java-internal-port }}"
             PROFILE="dev"
             APP_DIR="/home/ubuntu/pierre/app/dev/${{ inputs.app-name }}"
           fi
           echo "image-tag=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "image-suffix=${IMAGE_SUFFIX}" >> $GITHUB_OUTPUT
           echo "container-name=${CONTAINER}" >> $GITHUB_OUTPUT
           echo "port-mapping=${PORT}" >> $GITHUB_OUTPUT
           echo "spring-profile=${PROFILE}" >> $GITHUB_OUTPUT
@@ -339,7 +342,7 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    needs: docker
+    needs: [build, docker]
 
     steps:
       - name: Setup SSH key
@@ -351,12 +354,19 @@ jobs:
 
       - name: Deploy container
         run: |
-          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'ENDSSH'
+          PROFILE="${{ needs.docker.outputs.spring-profile }}"
+          if [ "$PROFILE" = "prod" ]; then
+            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:latest"
+          else
+            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}-dev:${{ needs.build.outputs.version }}"
+          fi
+          ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            IMAGE="$IMAGE" \
+            CONTAINER="${{ needs.docker.outputs.container-name }}" \
+            PORT="${{ needs.docker.outputs.port-mapping }}" \
+            PROFILE="$PROFILE" \
+            bash << 'ENDSSH'
             set -e
-            IMAGE="${{ needs.docker.outputs.image-tag }}"
-            CONTAINER="${{ needs.docker.outputs.container-name }}"
-            PORT="${{ needs.docker.outputs.port-mapping }}"
-            PROFILE="${{ needs.docker.outputs.spring-profile }}"
             APP_DIR="/home/ubuntu/pierre/app/${PROFILE}/${{ inputs.app-name }}"
             LOG_DIR="/opt/sfd/logs-${PROFILE}"
 
