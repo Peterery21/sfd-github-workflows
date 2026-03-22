@@ -233,7 +233,8 @@ jobs:
 
           mkdir -p /tmp/libs
           # Build common libs from source (may have newer version than VPS JARs)
-          # Build common-security-oauth2 from source (pulls correct realtime-ws from Nexus)
+          # Build realtime-ws FIRST so security-oauth2 and fat JAR bundle the correct version
+          build_lib_as_version "common-realtime-ws" "common-realtime-ws" "0.0.1-SNAPSHOT"
           build_lib_as_version "common-security-oauth2" "common-security-oauth2" "3.7.0-SNAPSHOT"
           build_lib_as_version "common-activity-tracking" "common-activity-tracking" "1.0.0-SNAPSHOT"
           # Build SFD libs in dep order
