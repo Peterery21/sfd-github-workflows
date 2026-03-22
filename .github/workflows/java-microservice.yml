@@ -139,18 +139,18 @@ jobs:
               return 0
             fi
 
-            # Find JAR: in Jenkins job archives (named artifact-VERSION.jar) or .m2 (named with timestamp)
+            # Find JAR: prefer .m2 cache (what Jenkins actually builds against) over job archives
             local REMOTE_JAR=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "find $JENKINS/jobs -name '${ARTIFACT}-${VERSION}.jar' 2>/dev/null | grep -v sources | grep -v javadoc | tail -1" 2>/dev/null)
+              "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.jar' 2>/dev/null | grep -v sources | xargs ls -t 2>/dev/null | head -1" 2>/dev/null)
 
             # Find POM: search in .m2 repository for this artifact (may have timestamped filename)
             local REMOTE_POM=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
               "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.pom' 2>/dev/null | grep -v sources | tail -1" 2>/dev/null)
 
             if [ -z "$REMOTE_JAR" ]; then
-              # Also try .m2 for the JAR (newest by modification time)
+              # Fallback: try Jenkins job archives (named artifact-VERSION.jar)
               REMOTE_JAR=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-                "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.jar' 2>/dev/null | grep -v sources | xargs ls -t 2>/dev/null | head -1" 2>/dev/null)
+                "find $JENKINS/jobs -name '${ARTIFACT}-${VERSION}.jar' 2>/dev/null | grep -v sources | grep -v javadoc | tail -1" 2>/dev/null)
             fi
 
             if [ -n "$REMOTE_JAR" ]; then
