@@ -85,38 +85,39 @@ jobs:
           java-version: "17"
           distribution: "temurin"
           cache: "maven"
+          server-id: nexus-public
+          server-username: NEXUS_USER
+          server-password: NEXUS_PASSWORD
 
-      - name: Configure Maven settings (Nexus)
+      - name: Configure Maven mirror (Nexus)
+        env:
+          NEXUS_URL: ${{ secrets.NEXUS_URL }}
+          NEXUS_USER: ${{ secrets.NEXUS_USER }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
-          mkdir -p ~/.m2
-          cat > ~/.m2/settings.xml << 'EOF'
-          <settings>
-            <mirrors>
-              <mirror>
-                <id>nexus-public</id>
-                <mirrorOf>*</mirrorOf>
-                <url>${{ secrets.NEXUS_URL }}/repository/maven-public/</url>
-              </mirror>
-            </mirrors>
-            <servers>
-              <server>
-                <id>nexus-public</id>
-                <username>${{ secrets.NEXUS_USER }}</username>
-                <password>${{ secrets.NEXUS_PASSWORD }}</password>
-              </server>
-              <server>
-                <id>nexus-snapshots</id>
-                <username>${{ secrets.NEXUS_USER }}</username>
-                <password>${{ secrets.NEXUS_PASSWORD }}</password>
-              </server>
-              <server>
-                <id>nexus-releases</id>
-                <username>${{ secrets.NEXUS_USER }}</username>
-                <password>${{ secrets.NEXUS_PASSWORD }}</password>
-              </server>
-            </servers>
-          </settings>
-          EOF
+          python3 -c "
+import os
+url = os.environ['NEXUS_URL']
+user = os.environ['NEXUS_USER']
+pwd = os.environ['NEXUS_PASSWORD']
+xml = '''<settings>
+  <mirrors>
+    <mirror>
+      <id>nexus-public</id>
+      <mirrorOf>*</mirrorOf>
+      <url>{url}/repository/maven-public/</url>
+    </mirror>
+  </mirrors>
+  <servers>
+    <server><id>nexus-public</id><username>{user}</username><password>{pwd}</password></server>
+    <server><id>nexus-snapshots</id><username>{user}</username><password>{pwd}</password></server>
+    <server><id>nexus-releases</id><username>{user}</username><password>{pwd}</password></server>
+  </servers>
+</settings>'''.format(url=url, user=user, pwd=pwd)
+import os; os.makedirs(os.path.expanduser('~/.m2'), exist_ok=True)
+open(os.path.expanduser('~/.m2/settings.xml'), 'w').write(xml)
+print('settings.xml written')
+"
 
       - name: Determine version
         id: version
@@ -132,7 +133,10 @@ jobs:
           fi
 
       - name: Build & Test
-        run: mvn ${{ inputs.maven-goals }} -q
+        env:
+          NEXUS_USER: ${{ secrets.NEXUS_USER }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+        run: mvn ${{ inputs.maven-goals }} -q -U
 
       - name: SonarQube Analysis
         if: ${{ inputs.sonar-enabled }}
