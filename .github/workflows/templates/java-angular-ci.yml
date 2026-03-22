@@ -1,0 +1,29 @@
+# Template ci.yml pour microservices Java Spring Boot et frontends Angular
+# Copier dans .github/workflows/ci.yml de chaque repo
+# Aucune configuration nécessaire — tout est centralisé dans services-registry.yml
+
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [develop, master, main]
+  pull_request:
+    branches: [develop, master, main]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Déclencher un release (bump version + tag + Docker :version)"
+        type: boolean
+        default: false
+      release-type:
+        description: "Type de release"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+jobs:
+  pipeline:
+    uses: Peterery21/sfd-github-workflows/.github/workflows/dispatcher.yml@main
+    with:
+      release: ${{ inputs.release || false }}
+      release-type: ${{ inputs.release-type || 'patch' }}
+    secrets: inherit

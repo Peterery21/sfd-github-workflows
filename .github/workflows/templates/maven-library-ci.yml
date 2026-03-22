@@ -1,0 +1,15 @@
+# Template ci.yml pour librairies Maven (sans Docker, sans deploy VPS)
+# Copier dans .github/workflows/ci.yml de chaque repo
+# Aucune configuration nécessaire — tout est centralisé dans services-registry.yml
+
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [develop, master, main]
+  pull_request:
+    branches: [develop, master, main]
+
+jobs:
+  pipeline:
+    uses: Peterery21/sfd-github-workflows/.github/workflows/dispatcher.yml@main
+    secrets: inherit
