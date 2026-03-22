@@ -118,17 +118,28 @@ jobs:
 
           copy_and_install() {
             local NAME="$1" GROUP="$2" ARTIFACT="$3" VERSION="$4"
-            # Search in Jenkins .m2 cache first (has POM with deps), then job archives
+            local BASE_VERSION="${VERSION%-SNAPSHOT}"
+
+            # Find JAR: in Jenkins job archives (named artifact-VERSION.jar) or .m2 (named with timestamp)
             local REMOTE_JAR=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "find $JENKINS/.m2/repository $JENKINS/jobs -name '${ARTIFACT}-${VERSION}.jar' 2>/dev/null | grep -v sources | grep -v javadoc | tail -1" 2>/dev/null)
+              "find $JENKINS/jobs -name '${ARTIFACT}-${VERSION}.jar' 2>/dev/null | grep -v sources | grep -v javadoc | tail -1" 2>/dev/null)
+
+            # Find POM: search in .m2 repository for this artifact (may have timestamped filename)
+            local REMOTE_POM=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+              "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.pom' 2>/dev/null | grep -v sources | tail -1" 2>/dev/null)
+
+            if [ -z "$REMOTE_JAR" ]; then
+              # Also try .m2 for the JAR (timestamped name)
+              REMOTE_JAR=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+                "find $JENKINS/.m2/repository -path '*/${ARTIFACT}/${VERSION}*' -name '*.jar' 2>/dev/null | grep -v sources | tail -1" 2>/dev/null)
+            fi
+
             if [ -n "$REMOTE_JAR" ]; then
               scp -q -i ~/.ssh/deploy_key "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${REMOTE_JAR}" "/tmp/jars/${NAME}.jar" 2>/dev/null
-              # Try to get the POM alongside (in .m2 cache the .pom is next to the .jar)
-              local REMOTE_POM="${REMOTE_JAR%.jar}.pom"
-              local HAS_POM=$(ssh -i ~/.ssh/deploy_key ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-                "[ -f '$REMOTE_POM' ] && echo yes || echo no" 2>/dev/null)
-              if [ "$HAS_POM" = "yes" ]; then
+              if [ -n "$REMOTE_POM" ]; then
                 scp -q -i ~/.ssh/deploy_key "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${REMOTE_POM}" "/tmp/jars/${NAME}.pom" 2>/dev/null
+                # Fix version in POM if it has timestamp (replace timestamped version with SNAPSHOT)
+                sed -i "s|<version>${BASE_VERSION}-[0-9]*\.[0-9]*-[0-9]*</version>|<version>${VERSION}</version>|g" "/tmp/jars/${NAME}.pom" 2>/dev/null || true
                 mvn install:install-file \
                   -Dfile="/tmp/jars/${NAME}.jar" \
                   -DpomFile="/tmp/jars/${NAME}.pom" \
