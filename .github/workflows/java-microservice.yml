@@ -288,6 +288,7 @@ jobs:
             IMAGE="${{ secrets.REGISTRY_URL }}/${APP_NAME}-dev:${{ needs.build.outputs.version }}"
           fi
 
+          JVM_OPTS_Q="$(printf '%q' "$JVM_OPTS")"
           ssh -i ~/.ssh/deploy_key \
             -o StrictHostKeyChecking=no \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
@@ -295,7 +296,7 @@ jobs:
             CONTAINER="$CONTAINER" \
             PORT="$PORT" \
             APP_NAME="$APP_NAME" \
-            JVM_OPTS="$JVM_OPTS" \
+            JVM_OPTS="$JVM_OPTS_Q" \
             MEMORY_LIMIT="$MEMORY_LIMIT" \
             UPLOAD_FOLDER="$UPLOAD_FOLDER" \
             IMAGE="$IMAGE" \
@@ -599,13 +600,14 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
+          JVM_OPTS_Q="$(printf '%q' "$JVM_OPTS")"
           ssh -i ~/.ssh/deploy_key \
             -o StrictHostKeyChecking=no \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             CONTAINER="$CONTAINER" \
             PORT="$PORT" \
             APP_NAME="$APP_NAME" \
-            JVM_OPTS="$JVM_OPTS" \
+            JVM_OPTS="$JVM_OPTS_Q" \
             MEMORY_LIMIT="$MEMORY_LIMIT" \
             UPLOAD_FOLDER="$UPLOAD_FOLDER" \
             IMAGE="$IMAGE" \
@@ -679,3 +681,4 @@ jobs:
           done
           echo "❌ Release health check failed"
           exit 1
+
