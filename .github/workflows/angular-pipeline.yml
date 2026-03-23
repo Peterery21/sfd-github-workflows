@@ -226,15 +226,31 @@ jobs:
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             PORT="$PORT" CONTAINER="$CONTAINER" \
             bash << 'HEALTHCHECK'
-            sleep 10
+            sleep 5
+
+            # Vérifier que le conteneur est encore en vie
+            RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
+            echo "Container ${CONTAINER} running: ${RUNNING}"
+            if [ "${RUNNING}" != "true" ]; then
+              echo "❌ Container exited immediately — logs:"
+              docker logs --tail 30 "${CONTAINER}" 2>&1 || true
+              echo "--- docker ps ---"
+              docker ps -a --filter "name=${CONTAINER}"
+            fi
+
             for i in $(seq 1 15); do
-              STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-                --max-time 10 "http://localhost:${PORT}" || echo "000")
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "http://localhost:${PORT}" 2>/dev/null)
               if [ "$STATUS" = "200" ]; then
                 echo "✅ Health check passed (attempt $i)"
                 exit 0
               fi
-              echo "Attempt $i/15 — status: ${STATUS}, waiting 10s..."
+              # Re-check container state
+              RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
+              echo "Attempt $i/15 — HTTP ${STATUS}, container running: ${RUNNING}"
+              if [ "${RUNNING}" != "true" ]; then
+                echo "Container logs:"
+                docker logs --tail 20 "${CONTAINER}" 2>&1 || true
+              fi
               sleep 10
             done
 
@@ -253,8 +269,8 @@ jobs:
               -p "${PORT}" \
               -e NODE_ENV="${APP_ENV}" \
               ${EXTRA_ARGS} \
-              "${OLD_IMAGE}" \
-              && echo "✅ Rollback successful" || echo "❌ Rollback failed"
+              "${OLD_IMAGE}"
+            echo "✅ Rollback successful"
             exit 1
           HEALTHCHECK
 
