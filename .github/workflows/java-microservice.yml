@@ -55,6 +55,15 @@ on:
         description: "Type de release (patch / minor / major)"
         type: string
         default: "patch"
+      extra-env:
+        description: |
+          Variables d'environnement supplémentaires pour docker run (une par ligne, format KEY=VALUE).
+          Supporte le placeholder {DEV_SUFFIX} remplacé par -dev (dev) ou vide (prod).
+          Exemple:
+            PREFERENCE_SERVICE_URL=http://sfd-commun{DEV_SUFFIX}:4597/api/preference
+            CLIENT_SERVICE_URL=http://sfd-client{DEV_SUFFIX}:4598/api/client
+        type: string
+        default: ""
     secrets:
       REGISTRY_URL:
         required: true
@@ -304,12 +313,21 @@ jobs:
           JVM_OPTS: ${{ inputs.jvm-opts }}
           MEMORY_LIMIT: ${{ inputs.memory-limit }}
           UPLOAD_FOLDER: ${{ inputs.upload-folder }}
+          EXTRA_ENV_TEMPLATE: ${{ inputs.extra-env }}
         run: |
           # Reconstruct full image URL (avoids GitHub secret masking in outputs)
           if [ "$PROFILE" = "prod" ]; then
             IMAGE="${{ secrets.REGISTRY_URL }}/${APP_NAME}:latest"
+            DEV_SUFFIX=""
           else
             IMAGE="${{ secrets.REGISTRY_URL }}/${APP_NAME}-dev:${{ needs.build.outputs.version }}"
+            DEV_SUFFIX="-dev"
+          fi
+
+          # Process extra-env: replace {DEV_SUFFIX} placeholder and encode as pipe-separated string
+          EXTRA_ENV_ENCODED=""
+          if [ -n "$EXTRA_ENV_TEMPLATE" ]; then
+            EXTRA_ENV_ENCODED=$(echo "$EXTRA_ENV_TEMPLATE" | sed "s/{DEV_SUFFIX}/${DEV_SUFFIX}/g" | tr '\n' '|' | sed 's/|$//')
           fi
 
           JVM_OPTS_Q="$(printf '%q' "$JVM_OPTS")"
@@ -324,6 +342,7 @@ jobs:
             MEMORY_LIMIT="$MEMORY_LIMIT" \
             UPLOAD_FOLDER="$UPLOAD_FOLDER" \
             IMAGE="$IMAGE" \
+            EXTRA_ENV_ENCODED="$EXTRA_ENV_ENCODED" \
             bash << 'ENDSSH'
             set -e
 
@@ -367,7 +386,21 @@ jobs:
               echo "APP_DIR=${APP_DIR}"
               echo "LOG_DIR=${LOG_DIR}"
               echo "DOCKER_NETWORK=${DOCKER_NETWORK}"
+              echo "EXTRA_ENV_ENCODED=${EXTRA_ENV_ENCODED}"
             } > /tmp/rollback_${CONTAINER}.env
+
+            # Construire le fichier d'env supplémentaire (inter-service URLs, etc.)
+            EXTRA_ENV_FILE="/tmp/sfd_extra_env_${CONTAINER}.env"
+            : > "$EXTRA_ENV_FILE"
+            if [ -n "$EXTRA_ENV_ENCODED" ]; then
+              IFS='|' read -ra ENV_PAIRS <<< "$EXTRA_ENV_ENCODED"
+              for pair in "${ENV_PAIRS[@]}"; do
+                [[ -n "$pair" ]] && echo "$pair" >> "$EXTRA_ENV_FILE"
+              done
+              echo "📋 Extra env vars: $(wc -l < $EXTRA_ENV_FILE) variables"
+            fi
+            ENV_FILE_OPT=""
+            [ -s "$EXTRA_ENV_FILE" ] && ENV_FILE_OPT="--env-file $EXTRA_ENV_FILE"
 
             # Arrêter et supprimer l'ancien container
             docker stop "${CONTAINER}" 2>/dev/null || true
@@ -385,6 +418,7 @@ jobs:
               -e SPRING_PROFILES_ACTIVE="${PROFILE}" \
               -e UPLOAD_FOLDER="${UPLOAD_FOLDER}" \
               -e JAVA_OPTS="${JVM_OPTS}" \
+              $ENV_FILE_OPT \
               -v "${APP_DIR}/upload:${UPLOAD_FOLDER}" \
               -v "${LOG_DIR}:/app/logs" \
               "${IMAGE}"
@@ -643,6 +677,13 @@ jobs:
           MEMORY_LIMIT="${{ inputs.memory-limit }}"
           UPLOAD_FOLDER="${{ inputs.upload-folder }}"
 
+          # Process extra-env for prod (DEV_SUFFIX = empty)
+          EXTRA_ENV_ENCODED=""
+          EXTRA_ENV_TEMPLATE="${{ inputs.extra-env }}"
+          if [ -n "$EXTRA_ENV_TEMPLATE" ]; then
+            EXTRA_ENV_ENCODED=$(echo "$EXTRA_ENV_TEMPLATE" | sed "s/{DEV_SUFFIX}//g" | tr '\n' '|' | sed 's/|$//')
+          fi
+
           mkdir -p ~/.ssh
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
@@ -659,6 +700,7 @@ jobs:
             MEMORY_LIMIT="$MEMORY_LIMIT" \
             UPLOAD_FOLDER="$UPLOAD_FOLDER" \
             IMAGE="$IMAGE" \
+            EXTRA_ENV_ENCODED="$EXTRA_ENV_ENCODED" \
             bash << 'ENDSSH'
             set -e
 
@@ -676,6 +718,18 @@ jobs:
               2>/dev/null | awk '{print $1}')
             [ -z "$DOCKER_NETWORK" ] && DOCKER_NETWORK="bridge"
 
+            # Construire le fichier d'env supplémentaire
+            EXTRA_ENV_FILE="/tmp/sfd_extra_env_${CONTAINER}.env"
+            : > "$EXTRA_ENV_FILE"
+            if [ -n "$EXTRA_ENV_ENCODED" ]; then
+              IFS='|' read -ra ENV_PAIRS <<< "$EXTRA_ENV_ENCODED"
+              for pair in "${ENV_PAIRS[@]}"; do
+                [[ -n "$pair" ]] && echo "$pair" >> "$EXTRA_ENV_FILE"
+              done
+            fi
+            ENV_FILE_OPT=""
+            [ -s "$EXTRA_ENV_FILE" ] && ENV_FILE_OPT="--env-file $EXTRA_ENV_FILE"
+
             {
               echo "OLD_IMAGE=${OLD_IMAGE}"
               echo "PROFILE=prod"
@@ -687,6 +741,7 @@ jobs:
               echo "APP_DIR=${APP_DIR}"
               echo "LOG_DIR=${LOG_DIR}"
               echo "DOCKER_NETWORK=${DOCKER_NETWORK}"
+              echo "EXTRA_ENV_ENCODED=${EXTRA_ENV_ENCODED}"
             } > /tmp/rollback_${CONTAINER}.env
 
             docker stop "${CONTAINER}" 2>/dev/null || true
@@ -703,6 +758,7 @@ jobs:
               -e SPRING_PROFILES_ACTIVE="prod" \
               -e UPLOAD_FOLDER="${UPLOAD_FOLDER}" \
               -e JAVA_OPTS="${JVM_OPTS}" \
+              $ENV_FILE_OPT \
               -v "${APP_DIR}/upload:${UPLOAD_FOLDER}" \
               -v "${LOG_DIR}:/app/logs" \
               "${IMAGE}"
