@@ -125,17 +125,41 @@ jobs:
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
           mkdir -p ~/.m2
-          printf '%s\n' \
-            '<settings>' \
-            '  <mirrors><mirror><id>nexus-public</id><mirrorOf>*</mirrorOf>' \
-            "    <url>${NEXUS_URL}/repository/maven-public/</url>" \
-            '  </mirror></mirrors>' \
-            '  <servers>' \
-            "    <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
-            "    <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
-            "    <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
-            '  </servers>' \
-            '</settings>' > ~/.m2/settings.xml
+          cat > ~/.m2/settings.xml << 'SETTINGSEOF'
+          <settings>
+            <mirrors>
+              <mirror>
+                <id>nexus-public</id>
+                <mirrorOf>external:*,!nexus-snapshots</mirrorOf>
+                <url>${NEXUS_URL}/repository/maven-public/</url>
+              </mirror>
+            </mirrors>
+            <servers>
+              <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
+              <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
+              <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
+              <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
+            </servers>
+            <profiles>
+              <profile>
+                <id>nexus-snapshots</id>
+                <repositories>
+                  <repository>
+                    <id>nexus-snapshots</id>
+                    <url>${NEXUS_URL}/repository/maven-snapshots/</url>
+                    <releases><enabled>false</enabled></releases>
+                    <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>
+                  </repository>
+                </repositories>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>nexus-snapshots</activeProfile>
+            </activeProfiles>
+          </settings>
+          SETTINGSEOF
+          # Substitute env vars into settings.xml
+          sed -i "s|\${NEXUS_URL}|${NEXUS_URL}|g; s|\${NEXUS_USER}|${NEXUS_USER}|g; s|\${NEXUS_PASSWORD}|${NEXUS_PASSWORD}|g" ~/.m2/settings.xml
 
       - name: Determine version
         id: version
@@ -473,17 +497,41 @@ jobs:
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
           mkdir -p ~/.m2
-          printf '%s\n' \
-            '<settings>' \
-            '  <mirrors><mirror><id>nexus-public</id><mirrorOf>*</mirrorOf>' \
-            "    <url>${NEXUS_URL}/repository/maven-public/</url>" \
-            '  </mirror></mirrors>' \
-            '  <servers>' \
-            "    <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
-            "    <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
-            "    <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
-            '  </servers>' \
-            '</settings>' > ~/.m2/settings.xml
+          cat > ~/.m2/settings.xml << 'SETTINGSEOF'
+          <settings>
+            <mirrors>
+              <mirror>
+                <id>nexus-public</id>
+                <mirrorOf>external:*,!nexus-snapshots</mirrorOf>
+                <url>${NEXUS_URL}/repository/maven-public/</url>
+              </mirror>
+            </mirrors>
+            <servers>
+              <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
+              <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
+              <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
+              <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
+            </servers>
+            <profiles>
+              <profile>
+                <id>nexus-snapshots</id>
+                <repositories>
+                  <repository>
+                    <id>nexus-snapshots</id>
+                    <url>${NEXUS_URL}/repository/maven-snapshots/</url>
+                    <releases><enabled>false</enabled></releases>
+                    <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>
+                  </repository>
+                </repositories>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>nexus-snapshots</activeProfile>
+            </activeProfiles>
+          </settings>
+          SETTINGSEOF
+          # Substitute env vars into settings.xml
+          sed -i "s|\${NEXUS_URL}|${NEXUS_URL}|g; s|\${NEXUS_USER}|${NEXUS_USER}|g; s|\${NEXUS_PASSWORD}|${NEXUS_PASSWORD}|g" ~/.m2/settings.xml
 
       - name: Compute release version
         id: release-version
