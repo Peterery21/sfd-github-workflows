@@ -1,4 +1,4 @@
-name: Java Microservice Pipeline
+successfully downloaded text file (SHA: 398e6958b5a5a5b6e58cf21935c69bc28067f139)name: Java Microservice Pipeline
 
 on:
   workflow_call:
@@ -64,14 +64,16 @@ on:
             CLIENT_SERVICE_URL=http://sfd-client{DEV_SUFFIX}:4598/api/client
         type: string
         default: ""
-      extra-volumes:
+      volumes:
         description: |
-          Volumes Docker supplémentaires (un par ligne, format src:dest).
+          Volumes Docker (un par ligne, format src:dest). Remplace les volumes par défaut.
+          Si vide, utilise les volumes par défaut : upload bind mount + logs bind mount.
           Supporte le placeholder {PROFILE} remplacé par "dev" ou "prod".
-          Exemple (named volume):
+          Exemples (named volumes):
             {PROFILE}-commercial-uploads:/app/uploads
-          Exemple (bind mount supplémentaire):
-            /opt/sfd/custom:/app/custom
+            {PROFILE}-commercial-logs:/app/logs
+          Exemple (logs seulement):
+            /opt/sfd/logs-{PROFILE}:/app/logs
         type: string
         default: ""
     secrets:
@@ -324,7 +326,7 @@ jobs:
           MEMORY_LIMIT: ${{ inputs.memory-limit }}
           UPLOAD_FOLDER: ${{ inputs.upload-folder }}
           EXTRA_ENV_TEMPLATE: ${{ inputs.extra-env }}
-          EXTRA_VOLUMES_TEMPLATE: ${{ inputs.extra-volumes }}
+          VOLUMES_TEMPLATE: ${{ inputs.volumes }}
         run: |
           # Reconstruct full image URL (avoids GitHub secret masking in outputs)
           if [ "$PROFILE" = "prod" ]; then
@@ -341,10 +343,10 @@ jobs:
             EXTRA_ENV_ENCODED=$(echo "$EXTRA_ENV_TEMPLATE" | sed "s/{DEV_SUFFIX}/${DEV_SUFFIX}/g" | tr '\n' '|' | sed 's/|$//')
           fi
 
-          # Process extra-volumes: replace {PROFILE} placeholder and encode as pipe-separated string
-          EXTRA_VOLUMES_ENCODED=""
-          if [ -n "$EXTRA_VOLUMES_TEMPLATE" ]; then
-            EXTRA_VOLUMES_ENCODED=$(echo "$EXTRA_VOLUMES_TEMPLATE" | sed "s/{PROFILE}/${PROFILE}/g" | tr '\n' '|' | sed 's/|$//')
+          # Process volumes: replace {PROFILE} placeholder and encode as pipe-separated string
+          VOLUMES_ENCODED=""
+          if [ -n "$VOLUMES_TEMPLATE" ]; then
+            VOLUMES_ENCODED=$(echo "$VOLUMES_TEMPLATE" | sed "s/{PROFILE}/${PROFILE}/g" | tr '\n' '|' | sed 's/|$//')
           fi
 
           JVM_OPTS_Q="$(printf '%q' "$JVM_OPTS")"
@@ -360,7 +362,7 @@ jobs:
             UPLOAD_FOLDER="$UPLOAD_FOLDER" \
             IMAGE="$IMAGE" \
             EXTRA_ENV_ENCODED="$EXTRA_ENV_ENCODED" \
-            EXTRA_VOLUMES_ENCODED="$EXTRA_VOLUMES_ENCODED" \
+            VOLUMES_ENCODED="$VOLUMES_ENCODED" \
             bash << 'ENDSSH'
             set -e
 
@@ -369,8 +371,21 @@ jobs:
 
             echo "🚀 Deploying ${CONTAINER} (${IMAGE})..."
 
-            # Préparer les dossiers
-            mkdir -p "${APP_DIR}/upload" "${LOG_DIR}"
+            # Préparer les dossiers et construire les flags de volumes
+            VOL_OPTS=""
+            if [ -n "$VOLUMES_ENCODED" ]; then
+              IFS='|' read -ra VOL_SPECS <<< "$VOLUMES_ENCODED"
+              for vol in "${VOL_SPECS[@]}"; do
+                if [[ -n "$vol" ]]; then
+                  host_path="${vol%%:*}"
+                  [[ "$host_path" == /* ]] && mkdir -p "$host_path"
+                  VOL_OPTS="$VOL_OPTS -v $vol"
+                fi
+              done
+            else
+              mkdir -p "${APP_DIR}/upload" "${LOG_DIR}"
+              VOL_OPTS="-v ${APP_DIR}/upload:${UPLOAD_FOLDER} -v ${LOG_DIR}:/app/logs"
+            fi
 
             # Pull la nouvelle image
             docker pull "${IMAGE}"
@@ -405,18 +420,8 @@ jobs:
               echo "LOG_DIR=${LOG_DIR}"
               echo "DOCKER_NETWORK=${DOCKER_NETWORK}"
               echo "EXTRA_ENV_ENCODED=${EXTRA_ENV_ENCODED}"
-              echo "EXTRA_VOLUMES_ENCODED=${EXTRA_VOLUMES_ENCODED}"
+              echo "VOLUMES_ENCODED=${VOLUMES_ENCODED}"
             } > /tmp/rollback_${CONTAINER}.env
-
-            # Construire les volumes supplémentaires (named volumes ou bind mounts custom)
-            EXTRA_VOL_OPTS=""
-            if [ -n "$EXTRA_VOLUMES_ENCODED" ]; then
-              IFS='|' read -ra VOL_SPECS <<< "$EXTRA_VOLUMES_ENCODED"
-              for vol in "${VOL_SPECS[@]}"; do
-                [[ -n "$vol" ]] && EXTRA_VOL_OPTS="$EXTRA_VOL_OPTS -v $vol"
-              done
-              echo "📦 Extra volumes: $EXTRA_VOL_OPTS"
-            fi
 
             # Construire le fichier d'env supplémentaire (inter-service URLs, etc.)
             EXTRA_ENV_FILE="/tmp/sfd_extra_env_${CONTAINER}.env"
@@ -448,9 +453,7 @@ jobs:
               -e UPLOAD_FOLDER="${UPLOAD_FOLDER}" \
               -e JAVA_OPTS="${JVM_OPTS}" \
               $ENV_FILE_OPT \
-              -v "${APP_DIR}/upload:${UPLOAD_FOLDER}" \
-              -v "${LOG_DIR}:/app/logs" \
-              $EXTRA_VOL_OPTS \
+              $VOL_OPTS \
               "${IMAGE}"
 
             echo "✅ Container ${CONTAINER} started on network ${DOCKER_NETWORK}"
@@ -498,11 +501,17 @@ jobs:
             docker rm "${CONTAINER}" 2>/dev/null || true
             # Relancer avec exactement la même config (pull:false comme Jenkins)
             ROLLBACK_VOL_OPTS=""
-            if [ -n "$EXTRA_VOLUMES_ENCODED" ]; then
-              IFS='|' read -ra VOL_SPECS <<< "$EXTRA_VOLUMES_ENCODED"
+            if [ -n "$VOLUMES_ENCODED" ]; then
+              IFS='|' read -ra VOL_SPECS <<< "$VOLUMES_ENCODED"
               for vol in "${VOL_SPECS[@]}"; do
-                [[ -n "$vol" ]] && ROLLBACK_VOL_OPTS="$ROLLBACK_VOL_OPTS -v $vol"
+                if [[ -n "$vol" ]]; then
+                  host_path="${vol%%:*}"
+                  [[ "$host_path" == /* ]] && mkdir -p "$host_path"
+                  ROLLBACK_VOL_OPTS="$ROLLBACK_VOL_OPTS -v $vol"
+                fi
               done
+            else
+              ROLLBACK_VOL_OPTS="-v ${APP_DIR}/upload:${UPLOAD_FOLDER} -v ${LOG_DIR}:/app/logs"
             fi
             docker run -d \
               --name "${CONTAINER}" \
@@ -515,8 +524,6 @@ jobs:
               -e SPRING_PROFILES_ACTIVE="${PROFILE}" \
               -e UPLOAD_FOLDER="${UPLOAD_FOLDER}" \
               -e JAVA_OPTS="${JVM_OPTS}" \
-              -v "${APP_DIR}/upload:${UPLOAD_FOLDER}" \
-              -v "${LOG_DIR}:/app/logs" \
               $ROLLBACK_VOL_OPTS \
               "${OLD_IMAGE}" \
               && echo "✅ Rollback to ${OLD_IMAGE} successful" \
@@ -722,11 +729,11 @@ jobs:
             EXTRA_ENV_ENCODED=$(echo "$EXTRA_ENV_TEMPLATE" | sed "s/{DEV_SUFFIX}//g" | tr '\n' '|' | sed 's/|$//')
           fi
 
-          # Process extra-volumes for prod (PROFILE = prod)
-          EXTRA_VOLUMES_ENCODED=""
-          EXTRA_VOLUMES_TEMPLATE="${{ inputs.extra-volumes }}"
-          if [ -n "$EXTRA_VOLUMES_TEMPLATE" ]; then
-            EXTRA_VOLUMES_ENCODED=$(echo "$EXTRA_VOLUMES_TEMPLATE" | sed "s/{PROFILE}/prod/g" | tr '\n' '|' | sed 's/|$//')
+          # Process volumes for prod (PROFILE = prod)
+          VOLUMES_ENCODED=""
+          VOLUMES_TEMPLATE="${{ inputs.volumes }}"
+          if [ -n "$VOLUMES_TEMPLATE" ]; then
+            VOLUMES_ENCODED=$(echo "$VOLUMES_TEMPLATE" | sed "s/{PROFILE}/prod/g" | tr '\n' '|' | sed 's/|$//')
           fi
 
           mkdir -p ~/.ssh
@@ -746,7 +753,7 @@ jobs:
             UPLOAD_FOLDER="$UPLOAD_FOLDER" \
             IMAGE="$IMAGE" \
             EXTRA_ENV_ENCODED="$EXTRA_ENV_ENCODED" \
-            EXTRA_VOLUMES_ENCODED="$EXTRA_VOLUMES_ENCODED" \
+            VOLUMES_ENCODED="$VOLUMES_ENCODED" \
             bash << 'ENDSSH'
             set -e
 
@@ -754,7 +761,6 @@ jobs:
             LOG_DIR="/opt/sfd/logs-prod"
 
             echo "🚀 Releasing ${CONTAINER} (${IMAGE})..."
-            mkdir -p "${APP_DIR}/upload" "${LOG_DIR}"
             docker pull "${IMAGE}"
 
             OLD_IMAGE=$(docker inspect "${CONTAINER}" --format='{{.Config.Image}}' 2>/dev/null || echo "")
@@ -788,16 +794,22 @@ jobs:
               echo "LOG_DIR=${LOG_DIR}"
               echo "DOCKER_NETWORK=${DOCKER_NETWORK}"
               echo "EXTRA_ENV_ENCODED=${EXTRA_ENV_ENCODED}"
-              echo "EXTRA_VOLUMES_ENCODED=${EXTRA_VOLUMES_ENCODED}"
+              echo "VOLUMES_ENCODED=${VOLUMES_ENCODED}"
             } > /tmp/rollback_${CONTAINER}.env
 
-            # Construire les volumes supplémentaires
-            EXTRA_VOL_OPTS=""
-            if [ -n "$EXTRA_VOLUMES_ENCODED" ]; then
-              IFS='|' read -ra VOL_SPECS <<< "$EXTRA_VOLUMES_ENCODED"
+            # Construire les flags de volumes pour le release
+            VOL_OPTS=""
+            if [ -n "$VOLUMES_ENCODED" ]; then
+              IFS='|' read -ra VOL_SPECS <<< "$VOLUMES_ENCODED"
               for vol in "${VOL_SPECS[@]}"; do
-                [[ -n "$vol" ]] && EXTRA_VOL_OPTS="$EXTRA_VOL_OPTS -v $vol"
+                if [[ -n "$vol" ]]; then
+                  host_path="${vol%%:*}"
+                  [[ "$host_path" == /* ]] && mkdir -p "$host_path"
+                  VOL_OPTS="$VOL_OPTS -v $vol"
+                fi
               done
+            else
+              VOL_OPTS="-v ${APP_DIR}/upload:${UPLOAD_FOLDER} -v ${LOG_DIR}:/app/logs"
             fi
 
             docker stop "${CONTAINER}" 2>/dev/null || true
@@ -815,9 +827,7 @@ jobs:
               -e UPLOAD_FOLDER="${UPLOAD_FOLDER}" \
               -e JAVA_OPTS="${JVM_OPTS}" \
               $ENV_FILE_OPT \
-              -v "${APP_DIR}/upload:${UPLOAD_FOLDER}" \
-              -v "${LOG_DIR}:/app/logs" \
-              $EXTRA_VOL_OPTS \
+              $VOL_OPTS \
               "${IMAGE}"
 
             echo "✅ Release container ${CONTAINER} started"
