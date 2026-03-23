@@ -214,33 +214,35 @@ jobs:
           ENDSSH
 
       - name: Health check
+        # Exécuté via SSH (curl localhost depuis le VPS) car le runner GitHub Actions
+        # est une IP externe — les ports internes du VPS ne sont pas exposés publiquement.
+        env:
+          PORT_MAPPING: ${{ needs.build.outputs.port-mapping }}
+          CONTAINER: ${{ needs.build.outputs.container-name }}
         run: |
-          PORT=$(echo "${{ needs.build.outputs.port-mapping }}" | cut -d: -f1)
-          CONTAINER="${{ needs.build.outputs.container-name }}"
-          echo "Checking http://${{ secrets.VPS_HOST }}:${PORT}..."
-          # Attente initiale (nginx démarre vite mais on laisse 10s)
-          sleep 10
-          for i in $(seq 1 15); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 10 \
-              "http://${{ secrets.VPS_HOST }}:${PORT}" || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Health check passed (attempt $i)"
-              exit 0
-            fi
-            echo "Attempt $i/15 — status: ${STATUS}, waiting 10s..."
-            sleep 10
-          done
-
-          echo "❌ Health check failed — rolling back (comme Jenkins rollbackOnFailure)"
+          PORT=$(echo "$PORT_MAPPING" | cut -d: -f1)
+          echo "Checking http://localhost:${PORT} on VPS (via SSH)..."
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            CONTAINER="${CONTAINER}" \
-            bash << 'ROLLBACK'
+            PORT="$PORT" CONTAINER="$CONTAINER" \
+            bash << 'HEALTHCHECK'
+            sleep 10
+            for i in $(seq 1 15); do
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                --max-time 10 "http://localhost:${PORT}" || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "✅ Health check passed (attempt $i)"
+                exit 0
+              fi
+              echo "Attempt $i/15 — status: ${STATUS}, waiting 10s..."
+              sleep 10
+            done
+
+            echo "❌ Health check failed — rolling back"
             set -a; source /tmp/rollback_${CONTAINER}.env 2>/dev/null; set +a
             if [ -z "$OLD_IMAGE" ]; then
               echo "No previous image — cannot roll back"
-              exit 0
+              exit 1
             fi
             echo "↩️ Rolling back to ${OLD_IMAGE}"
             docker stop "${CONTAINER}" 2>/dev/null || true
@@ -253,8 +255,8 @@ jobs:
               ${EXTRA_ARGS} \
               "${OLD_IMAGE}" \
               && echo "✅ Rollback successful" || echo "❌ Rollback failed"
-          ROLLBACK
-          exit 1
+            exit 1
+          HEALTHCHECK
 
   # ─────────────────────────────────────────
   # JOB 3 : E2E Tests (optionnel, après deploy)
@@ -268,6 +270,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
@@ -283,6 +292,17 @@ jobs:
         # Comme Jenkins: npx playwright install chromium + install-deps chromium
         run: npx playwright install chromium --with-deps
 
+      - name: Open SSH tunnel to VPS
+        # Port 4630 peut être bloqué par le firewall VPS pour les IPs externes.
+        # On ouvre un tunnel SSH pour que les tests Playwright atteignent l'app via localhost.
+        run: |
+          PORT=$(echo "${{ needs.build.outputs.port-mapping }}" | cut -d: -f1)
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            -L ${PORT}:localhost:${PORT} \
+            -N -f \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+          echo "SSH tunnel opened on localhost:${PORT}"
+
       - name: Determine E2E base URL
         id: e2e-url
         run: |
@@ -290,7 +310,7 @@ jobs:
           if [ -n "${{ inputs.e2e-base-url }}" ]; then
             echo "url=${{ inputs.e2e-base-url }}" >> $GITHUB_OUTPUT
           else
-            echo "url=http://${{ secrets.VPS_HOST }}:${PORT}" >> $GITHUB_OUTPUT
+            echo "url=http://localhost:${PORT}" >> $GITHUB_OUTPUT
           fi
 
       - name: Create .auth directory
