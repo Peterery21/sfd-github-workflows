@@ -189,28 +189,34 @@ jobs:
               fi
             fi
 
+            # Réseau Docker (identique au blueprint Jenkins: "${envName}-network")
+            NETWORK="${APP_ENV}-network"
+            docker network create "${NETWORK}" 2>/dev/null || true
+
             # Sauvegarder tous les paramètres pour le rollback
             {
               echo "OLD_IMAGE=${OLD_IMAGE}"
               echo "PORT=${PORT}"
               echo "APP_ENV=${APP_ENV}"
               echo "EXTRA_ARGS=${EXTRA_ARGS}"
+              echo "NETWORK=${NETWORK}"
             } > /tmp/rollback_${CONTAINER}.env
 
             # Arrêter et supprimer l'ancien container
             docker stop "${CONTAINER}" 2>/dev/null || true
             docker rm "${CONTAINER}" 2>/dev/null || true
 
-            # Démarrer le nouveau container
+            # Démarrer le nouveau container avec le réseau Docker (nginx résout les backends par hostname)
             docker run -d \
               --name "${CONTAINER}" \
               --restart=always \
+              --network "${NETWORK}" \
               -p "${PORT}" \
               -e NODE_ENV="${APP_ENV}" \
               ${EXTRA_ARGS} \
               "${IMAGE}"
 
-            echo "✅ Container ${CONTAINER} started"
+            echo "✅ Container ${CONTAINER} started on network ${NETWORK}"
           ENDSSH
 
       - name: Health check
@@ -266,6 +272,7 @@ jobs:
             docker run -d \
               --name "${CONTAINER}" \
               --restart=always \
+              --network "${NETWORK}" \
               -p "${PORT}" \
               -e NODE_ENV="${APP_ENV}" \
               ${EXTRA_ARGS} \
