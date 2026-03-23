@@ -1,4 +1,4 @@
-successfully downloaded text file (SHA: 398e6958b5a5a5b6e58cf21935c69bc28067f139)name: Java Microservice Pipeline
+name: Java Microservice Pipeline
 
 on:
   workflow_call:
