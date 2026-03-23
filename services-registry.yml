@@ -28,7 +28,7 @@ Peterery21/sfd-commun-service:
   template: java
   app-name: sfd-commun
   dev-port: 4597
-  prod-port: 4611
+  prod-port: 4610
   internal-port: 4597
   health-path: /api/preference/actuator/health
   release-branch: master
@@ -46,7 +46,7 @@ Peterery21/sfd-client-service:
   template: java
   app-name: sfd-client
   dev-port: 4598
-  prod-port: 4613
+  prod-port: 4611
   internal-port: 4598
   health-path: /api/client/actuator/health
   release-branch: master
@@ -55,7 +55,7 @@ Peterery21/sfd-caisse-service:
   template: java
   app-name: sfd-caisse
   dev-port: 4599
-  prod-port: 4614
+  prod-port: 4613
   internal-port: 4599
   health-path: /api/caisse/actuator/health
   release-branch: master
@@ -73,7 +73,7 @@ Peterery21/sfd-credit-service:
   template: java
   app-name: sfd-credit
   dev-port: 4594
-  prod-port: 4618
+  prod-port: 4614
   internal-port: 4594
   health-path: /api/credit/actuator/health
   release-branch: master
@@ -82,7 +82,7 @@ Peterery21/sfd-stock-service:
   template: java
   app-name: sfd-stock
   dev-port: 4606
-  prod-port: 4619
+  prod-port: 4624
   internal-port: 4606
   health-path: /api/stock/actuator/health
   release-branch: master
@@ -91,7 +91,7 @@ Peterery21/sfd-commercial-service:
   template: java
   app-name: sfd-commercial
   dev-port: 4609
-  prod-port: 4625
+  prod-port: 4627
   internal-port: 4609
   health-path: /api/commercial/actuator/health
   release-branch: master
@@ -99,9 +99,9 @@ Peterery21/sfd-commercial-service:
 Peterery21/sfd-reporting-service:
   template: java
   app-name: sfd-reporting
-  dev-port: 4593
+  dev-port: 4607
   prod-port: 4617
-  internal-port: 4593
+  internal-port: 4607
   health-path: /api/reporting/actuator/health
   release-branch: master
 
@@ -109,7 +109,7 @@ Peterery21/sfd-suivi-evaluation-service:
   template: java
   app-name: sfd-suivi-evaluation
   dev-port: 4608
-  prod-port: 4624
+  prod-port: 4626
   internal-port: 4608
   health-path: /api/suivi-evaluation/actuator/health
   release-branch: master
@@ -117,19 +117,19 @@ Peterery21/sfd-suivi-evaluation-service:
 Peterery21/sfd-portail-client-service:
   template: java
   app-name: sfd-portail-client
-  dev-port: 4610
-  prod-port: 4629
-  internal-port: 4610
-  health-path: /api/portail-client/actuator/health
+  dev-port: 4611
+  prod-port: 4611
+  internal-port: 4611
+  health-path: /api/portail/actuator/health
   release-branch: master
 
 # Repos created after 2022: GitHub default branch is 'main'
 Peterery21/sfd-immobilisation-service:
   template: java
   app-name: sfd-immobilisation
-  dev-port: 4600
-  prod-port: 4616
-  internal-port: 4600
+  dev-port: 4601
+  prod-port: 4617
+  internal-port: 4601
   health-path: /api/immobilisation/actuator/health
   release-branch: main
 
@@ -137,7 +137,7 @@ Peterery21/sfd-rh-service:
   template: java
   app-name: sfd-rh
   dev-port: 4602
-  prod-port: 4620
+  prod-port: 4618
   internal-port: 4602
   health-path: /api/rh/actuator/health
   release-branch: main
@@ -146,7 +146,7 @@ Peterery21/sfd-paie-service:
   template: java
   app-name: sfd-paie
   dev-port: 4603
-  prod-port: 4621
+  prod-port: 4619
   internal-port: 4603
   health-path: /api/paie/actuator/health
   release-branch: main
@@ -172,9 +172,9 @@ Peterery21/sfd-transfert-service:
 Peterery21/sfd-agent-mobile-service:
   template: java
   app-name: sfd-agent-mobile
-  dev-port: 4627
-  prod-port: 4628
-  internal-port: 4627
+  dev-port: 4610
+  prod-port: 4627
+  internal-port: 4610
   health-path: /api/agent-mobile/actuator/health
   release-branch: main
 
