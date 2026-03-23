@@ -61,6 +61,7 @@ jobs:
             '  </mirror></mirrors>' \
             '  <servers>' \
             "    <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
+            "    <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
             "    <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
             "    <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>" \
             '  </servers>' \
