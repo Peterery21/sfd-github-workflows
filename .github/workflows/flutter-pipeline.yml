@@ -15,9 +15,9 @@ on:
         type: string
         default: ""
       shared-package-path:
-        description: "Chemin relatif où cloner le package partagé (ex: ../sfd_shared)"
+        description: "Nom du dossier où cloner le package partagé (relatif au workspace)"
         type: string
-        default: "../sfd_shared"
+        default: "sfd_shared"
       run-tests:
         description: "Exécuter les tests"
         type: boolean
@@ -49,6 +49,15 @@ jobs:
         with:
           flutter-version: ${{ inputs.flutter-version }}
           cache: true
+
+      - name: Override shared package path
+        if: ${{ inputs.shared-package-repo != '' }}
+        run: |
+          PKG_NAME=$(basename "${{ inputs.shared-package-path }}")
+          echo "dependency_overrides:" > pubspec_overrides.yaml
+          echo "  $PKG_NAME:" >> pubspec_overrides.yaml
+          echo "    path: ${{ inputs.shared-package-path }}" >> pubspec_overrides.yaml
+          cat pubspec_overrides.yaml
 
       - name: Install dependencies
         run: flutter pub get
