@@ -111,6 +111,7 @@ jobs:
   build:
     name: Build & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: ${{ !inputs.release }}
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -252,6 +253,7 @@ jobs:
   docker:
     name: Docker Build & Push
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
     if: ${{ !inputs.release }}
     outputs:
@@ -305,6 +307,7 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [build, docker]
     if: ${{ !inputs.release }}
 
@@ -539,6 +542,7 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     if: ${{ inputs.release }}
 
     services:

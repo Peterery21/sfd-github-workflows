@@ -1,0 +1,61 @@
+name: Flutter CI Pipeline
+on:
+  workflow_call:
+    inputs:
+      app-name:
+        description: "Nom de l'application Flutter"
+        type: string
+        required: true
+      flutter-version:
+        description: "Version de Flutter"
+        type: string
+        default: "3.41.0"
+      shared-package-repo:
+        description: "Repo GitHub du package partagé (ex: Peterery21/sfd_shared). Si vide, pas de package partagé."
+        type: string
+        default: ""
+      shared-package-path:
+        description: "Chemin relatif où cloner le package partagé (ex: ../sfd_shared)"
+        type: string
+        default: "../sfd_shared"
+      run-tests:
+        description: "Exécuter les tests"
+        type: boolean
+        default: true
+    secrets:
+      GH_TOKEN:
+        required: false
+
+jobs:
+  build:
+    name: Build & Analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout shared package
+        if: ${{ inputs.shared-package-repo != '' }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.shared-package-repo }}
+          path: ${{ inputs.shared-package-path }}
+          token: ${{ secrets.GH_TOKEN || github.token }}
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ inputs.flutter-version }}
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze code
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run tests
+        if: ${{ inputs.run-tests }}
+        run: flutter test
