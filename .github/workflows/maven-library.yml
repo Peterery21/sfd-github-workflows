@@ -103,7 +103,7 @@ jobs:
             -q
 
       - name: Deploy to Nexus
-        if: ${{ inputs.nexus-deploy && github.ref_name == 'develop' || github.ref_name == 'master' || github.ref_name == 'main' }}
+        if: ${{ inputs.nexus-deploy && (github.ref_name == 'develop' || github.ref_name == 'master' || github.ref_name == 'main') }}
         run: |
           mvn deploy -DskipTests -q
         continue-on-error: false
