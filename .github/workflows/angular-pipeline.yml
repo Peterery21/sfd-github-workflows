@@ -35,6 +35,10 @@ on:
         description: "Port JSON Server (0 = désactivé)"
         type: number
         default: 0
+      internal-port:
+        description: "Port interne du container (80 pour Nginx SPA, 4000 pour SSR Node)"
+        type: number
+        default: 80
     secrets:
       REGISTRY_URL:
         required: true
@@ -112,11 +116,11 @@ jobs:
           if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
             IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:latest"
             CONTAINER="${{ inputs.app-name }}"
-            PORT="${{ inputs.prod-port }}:80"
+            PORT="${{ inputs.prod-port }}:${{ inputs.internal-port }}"
           else
             IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}-dev:${{ steps.version.outputs.version }}"
             CONTAINER="${{ inputs.app-name }}-dev"
-            PORT="${{ inputs.dev-port }}:80"
+            PORT="${{ inputs.dev-port }}:${{ inputs.internal-port }}"
           fi
           echo "image-tag=${IMAGE}" >> $GITHUB_OUTPUT
           echo "container-name=${CONTAINER}" >> $GITHUB_OUTPUT
