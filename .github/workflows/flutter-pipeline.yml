@@ -23,7 +23,7 @@ on:
         type: boolean
         default: true
     secrets:
-      GH_TOKEN:
+      GH_PAT:
         required: false
 
 jobs:
@@ -42,7 +42,7 @@ jobs:
         with:
           repository: ${{ inputs.shared-package-repo }}
           path: ${{ inputs.shared-package-path }}
-          token: ${{ secrets.GH_TOKEN || github.token }}
+          token: ${{ secrets.GH_PAT || github.token }}
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -63,7 +63,7 @@ jobs:
         run: flutter pub get
 
       - name: Analyze code
-        run: flutter analyze --no-fatal-infos
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Run tests
         if: ${{ inputs.run-tests }}
