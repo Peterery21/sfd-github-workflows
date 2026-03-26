@@ -76,6 +76,13 @@ on:
             /opt/sfd/logs-{PROFILE}:/app/logs
         type: string
         default: ""
+      docker-network:
+        description: |
+          Nom du réseau Docker à utiliser. Si vide, auto-détecte depuis sql-server (prod) ou sql-server-dev (dev).
+          Utile pour les projets utilisant MySQL ou un autre conteneur DB.
+          Exemple: prod-network
+        type: string
+        default: ""
     secrets:
       REGISTRY_URL:
         required: true
@@ -330,6 +337,7 @@ jobs:
           UPLOAD_FOLDER: ${{ inputs.upload-folder }}
           EXTRA_ENV_TEMPLATE: ${{ inputs.extra-env }}
           VOLUMES_TEMPLATE: ${{ inputs.volumes }}
+          DOCKER_NETWORK_INPUT: ${{ inputs.docker-network }}
         run: |
           # Reconstruct full image URL (avoids GitHub secret masking in outputs)
           if [ "$PROFILE" = "prod" ]; then
@@ -366,6 +374,7 @@ jobs:
             IMAGE="$IMAGE" \
             EXTRA_ENV_ENCODED="$EXTRA_ENV_ENCODED" \
             VOLUMES_ENCODED="$VOLUMES_ENCODED" \
+            DOCKER_NETWORK_INPUT="$DOCKER_NETWORK_INPUT" \
             bash << 'ENDSSH'
             set -e
 
@@ -396,8 +405,12 @@ jobs:
             # Sauvegarder l'ancienne image AVANT arrêt (comme Jenkins: DockerUtils.currentImage)
             OLD_IMAGE=$(docker inspect "${CONTAINER}" --format='{{.Config.Image}}' 2>/dev/null || echo "")
 
-            # Choisir le réseau Docker selon l'environnement (dev → sql-server-dev, prod → sql-server)
-            if [ "$PROFILE" = "prod" ]; then
+            # Choisir le réseau Docker
+            if [ -n "$DOCKER_NETWORK_INPUT" ]; then
+              # Explicit network from input
+              DOCKER_NETWORK="$DOCKER_NETWORK_INPUT"
+              docker network create "${DOCKER_NETWORK}" 2>/dev/null || true
+            elif [ "$PROFILE" = "prod" ]; then
               DOCKER_NETWORK=$(docker inspect sql-server \
                 --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
                 2>/dev/null | awk '{print $1}')
@@ -758,6 +771,7 @@ jobs:
             IMAGE="$IMAGE" \
             EXTRA_ENV_ENCODED="$EXTRA_ENV_ENCODED" \
             VOLUMES_ENCODED="$VOLUMES_ENCODED" \
+            DOCKER_NETWORK_INPUT="${{ inputs.docker-network }}" \
             bash << 'ENDSSH'
             set -e
 
@@ -769,9 +783,14 @@ jobs:
 
             OLD_IMAGE=$(docker inspect "${CONTAINER}" --format='{{.Config.Image}}' 2>/dev/null || echo "")
 
-            DOCKER_NETWORK=$(docker inspect sql-server \
-              --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
-              2>/dev/null | awk '{print $1}')
+            if [ -n "$DOCKER_NETWORK_INPUT" ]; then
+              DOCKER_NETWORK="$DOCKER_NETWORK_INPUT"
+              docker network create "${DOCKER_NETWORK}" 2>/dev/null || true
+            else
+              DOCKER_NETWORK=$(docker inspect sql-server \
+                --format='{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' \
+                2>/dev/null | awk '{print $1}')
+            fi
             [ -z "$DOCKER_NETWORK" ] && DOCKER_NETWORK="bridge"
 
             # Construire le fichier d'env supplémentaire
