@@ -476,41 +476,44 @@ jobs:
           ENDSSH
 
       - name: Health check
+        # Exécuté via SSH (curl localhost depuis le VPS) car le runner GitHub Actions
+        # est une IP externe — les ports internes du VPS ne sont pas exposés publiquement.
         run: |
           PORT=$(echo "${{ needs.docker.outputs.port-mapping }}" | cut -d: -f1)
           CONTAINER="${{ needs.docker.outputs.container-name }}"
-          echo "Checking http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}"
-          # Attente initiale démarrage Spring Boot
-          sleep 30
-          for i in $(seq 1 15); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 10 \
-              "http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}" || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Health check passed (attempt $i)"
-              exit 0
-            fi
-            echo "Attempt $i/15 — status: ${STATUS}, waiting 10s..."
-            # Diagnostics à la tentative 3
-            if [ "$i" = "3" ]; then
-              ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-                ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-                "docker inspect --format='Status: {{.State.Status}}' ${CONTAINER} 2>/dev/null; docker logs --tail 30 ${CONTAINER} 2>&1 || true"
-            fi
-            sleep 10
-          done
+          HEALTH_PATH="${{ inputs.health-path }}"
+          echo "Checking http://localhost:${PORT}${HEALTH_PATH} on VPS (via SSH)..."
 
-          echo "❌ Health check failed — rolling back (like Jenkins rollbackOnFailure)"
-          # Rollback identique à Jenkins: DockerUtils.stopAndRemove + DockerUtils.runContainer(previousImage, pull:false)
-          # Tous les paramètres (env, volumes, network, memory) sont restaurés depuis le fichier de sauvegarde
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            CONTAINER="${CONTAINER}" \
-            bash << 'ROLLBACK'
+            PORT="${PORT}" CONTAINER="${CONTAINER}" HEALTH_PATH="${HEALTH_PATH}" \
+            bash << 'HEALTHCHECK'
+            # Attente initiale démarrage Spring Boot
+            sleep 30
+
+            for i in $(seq 1 15); do
+              RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+                "http://localhost:${PORT}${HEALTH_PATH}" 2>/dev/null || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "✅ Health check passed (attempt $i)"
+                exit 0
+              fi
+              echo "Attempt $i/15 — HTTP ${STATUS}, container running: ${RUNNING}"
+              if [ "${RUNNING}" != "true" ]; then
+                echo "Container logs:"
+                docker logs --tail 20 "${CONTAINER}" 2>&1 || true
+              fi
+              sleep 10
+            done
+
+            echo "❌ Health check failed — rolling back (like Jenkins rollbackOnFailure)"
+            # Rollback identique à Jenkins: DockerUtils.stopAndRemove + DockerUtils.runContainer(previousImage, pull:false)
+            # Tous les paramètres (env, volumes, network, memory) sont restaurés depuis le fichier de sauvegarde
             set -a; source /tmp/rollback_${CONTAINER}.env 2>/dev/null; set +a
             if [ -z "$OLD_IMAGE" ]; then
               echo "No previous image — cannot roll back"
-              exit 0
+              exit 1
             fi
             echo "↩️ Rolling back to ${OLD_IMAGE}"
             docker stop "${CONTAINER}" 2>/dev/null || true
@@ -544,8 +547,8 @@ jobs:
               "${OLD_IMAGE}" \
               && echo "✅ Rollback to ${OLD_IMAGE} successful" \
               || echo "❌ Rollback failed"
-          ROLLBACK
-          exit 1
+            exit 1
+          HEALTHCHECK
 
   # ─────────────────────────────────────────
   # JOB 4 : Release (version bump + Nexus releases + Docker :version)
@@ -860,19 +863,30 @@ jobs:
         run: |
           PORT=${{ inputs.prod-port }}
           CONTAINER="${{ inputs.app-name }}"
-          echo "Checking http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}"
-          sleep 30
-          for i in $(seq 1 15); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 10 \
-              "http://${{ secrets.VPS_HOST }}:${PORT}${{ inputs.health-path }}" || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "✅ Release health check passed (attempt $i)"
-              exit 0
-            fi
-            echo "Attempt $i/15 — status: ${STATUS}, waiting 10s..."
-            sleep 10
-          done
-          echo "❌ Release health check failed"
-          exit 1
+          HEALTH_PATH="${{ inputs.health-path }}"
+          echo "Checking http://localhost:${PORT}${HEALTH_PATH} on VPS (via SSH)..."
+
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            PORT="${PORT}" CONTAINER="${CONTAINER}" HEALTH_PATH="${HEALTH_PATH}" \
+            bash << 'HEALTHCHECK'
+            sleep 30
+            for i in $(seq 1 15); do
+              RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+                "http://localhost:${PORT}${HEALTH_PATH}" 2>/dev/null || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "✅ Release health check passed (attempt $i)"
+                exit 0
+              fi
+              echo "Attempt $i/15 — HTTP ${STATUS}, container running: ${RUNNING}"
+              if [ "${RUNNING}" != "true" ]; then
+                echo "Container logs:"
+                docker logs --tail 20 "${CONTAINER}" 2>&1 || true
+              fi
+              sleep 10
+            done
+            echo "❌ Release health check failed"
+            exit 1
+          HEALTHCHECK
 
