@@ -507,9 +507,9 @@ jobs:
                 exit 0
               fi
               echo "Attempt $i/15 — HTTP ${STATUS}, container running: ${RUNNING}"
-              if [ "${RUNNING}" != "true" ]; then
-                echo "Container logs:"
-                docker logs --tail 20 "${CONTAINER}" 2>&1 || true
+              if [ "${RUNNING}" != "true" ] || [ "$STATUS" = "000" ]; then
+                echo "Container logs (last 80 lines):"
+                docker logs --tail 80 "${CONTAINER}" 2>&1 || true
               fi
               sleep 10
             done
@@ -887,9 +887,9 @@ jobs:
                 exit 0
               fi
               echo "Attempt $i/15 — HTTP ${STATUS}, container running: ${RUNNING}"
-              if [ "${RUNNING}" != "true" ]; then
-                echo "Container logs:"
-                docker logs --tail 20 "${CONTAINER}" 2>&1 || true
+              if [ "${RUNNING}" != "true" ] || [ "$STATUS" = "000" ]; then
+                echo "Container logs (last 80 lines):"
+                docker logs --tail 80 "${CONTAINER}" 2>&1 || true
               fi
               sleep 10
             done
