@@ -80,7 +80,9 @@ on:
         description: |
           Nom du réseau Docker à utiliser. Si vide, auto-détecte depuis sql-server (prod) ou sql-server-dev (dev).
           Utile pour les projets utilisant MySQL ou un autre conteneur DB.
+          Supporte le placeholder {PROFILE} remplacé par "dev" ou "prod".
           Exemple: prod-network
+          Exemple avec placeholder: {PROFILE}-network
         type: string
         default: ""
     secrets:
@@ -360,6 +362,11 @@ jobs:
             VOLUMES_ENCODED=$(echo "$VOLUMES_TEMPLATE" | sed "s/{PROFILE}/${PROFILE}/g" | tr '\n' '|' | sed 's/|$//')
           fi
 
+          # Process docker-network: replace {PROFILE} placeholder
+          if [ -n "$DOCKER_NETWORK_INPUT" ]; then
+            DOCKER_NETWORK_INPUT=$(echo "$DOCKER_NETWORK_INPUT" | sed "s/{PROFILE}/${PROFILE}/g")
+          fi
+
           JVM_OPTS_Q="$(printf '%q' "$JVM_OPTS")"
           ssh -i ~/.ssh/deploy_key \
             -o StrictHostKeyChecking=no \
@@ -494,7 +501,7 @@ jobs:
             for i in $(seq 1 15); do
               RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-                "http://localhost:${PORT}${HEALTH_PATH}" 2>/dev/null || echo "000")
+                "http://localhost:${PORT}${HEALTH_PATH}" 2>/dev/null) || STATUS="000"
               if [ "$STATUS" = "200" ]; then
                 echo "✅ Health check passed (attempt $i)"
                 exit 0
@@ -774,7 +781,7 @@ jobs:
             IMAGE="$IMAGE" \
             EXTRA_ENV_ENCODED="$EXTRA_ENV_ENCODED" \
             VOLUMES_ENCODED="$VOLUMES_ENCODED" \
-            DOCKER_NETWORK_INPUT="${{ inputs.docker-network }}" \
+            DOCKER_NETWORK_INPUT="$(echo '${{ inputs.docker-network }}' | sed 's/{PROFILE}/prod/g')" \
             bash << 'ENDSSH'
             set -e
 
@@ -874,7 +881,7 @@ jobs:
             for i in $(seq 1 15); do
               RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-                "http://localhost:${PORT}${HEALTH_PATH}" 2>/dev/null || echo "000")
+                "http://localhost:${PORT}${HEALTH_PATH}" 2>/dev/null) || STATUS="000"
               if [ "$STATUS" = "200" ]; then
                 echo "✅ Release health check passed (attempt $i)"
                 exit 0
