@@ -359,6 +359,8 @@ jobs:
         env:
           CI: true
           BASE_URL: ${{ steps.e2e-url.outputs.url }}
+          E2E_USERNAME: ${{ secrets.E2E_USERNAME }}
+          E2E_PASSWORD: ${{ secrets.E2E_PASSWORD }}
 
       - name: Upload Playwright report
         # Comme Jenkins: archiveArtifacts playwright-report/** (toujours, même en échec)
