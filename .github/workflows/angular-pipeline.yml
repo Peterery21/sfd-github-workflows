@@ -39,6 +39,16 @@ on:
         description: "Port interne du container (80 pour Nginx SPA, 4000 pour SSR Node)"
         type: number
         default: 80
+      backend-health-checks:
+        description: |
+          Backends à vérifier avant E2E (un par ligne, format "name:port").
+          Le health check s'effectue via SSH sur le VPS : curl http://localhost:{port}/api/{name}/actuator/health
+          Exemple:
+            sfd-commun:4597
+            sfd-client:4598
+            sfd-caisse:4599
+        type: string
+        default: ""
     secrets:
       REGISTRY_URL:
         required: false
@@ -318,6 +328,47 @@ jobs:
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Wait for backends health
+        # Gate E2E : vérifie que tous les backends sont UP avant de lancer les tests.
+        # Retry × 5 avec backoff 30s (max ~2.5min par backend).
+        if: ${{ inputs.backend-health-checks != '' }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            bash -s << 'HEALTHGATE'
+          MAX_ATTEMPTS=5
+          WAIT_SECONDS=30
+          CHECKS='${{ inputs.backend-health-checks }}'
+          ALL_OK=true
+
+          while IFS= read -r entry; do
+            [ -z "$entry" ] && continue
+            NAME=$(echo "$entry" | cut -d: -f1 | xargs)
+            PORT=$(echo "$entry" | cut -d: -f2 | xargs)
+            echo "⏳ Checking $NAME on port $PORT..."
+            ok=false
+            for i in $(seq 1 $MAX_ATTEMPTS); do
+              if curl -sf --max-time 5 "http://localhost:${PORT}/api/${NAME}/actuator/health" > /dev/null 2>&1; then
+                echo "  ✅ $NAME UP"
+                ok=true
+                break
+              fi
+              echo "  ⏳ attempt $i/$MAX_ATTEMPTS — waiting ${WAIT_SECONDS}s..."
+              sleep $WAIT_SECONDS
+            done
+            if [ "$ok" = "false" ]; then
+              echo "  ❌ $NAME FAILED after $MAX_ATTEMPTS attempts on port $PORT"
+              ALL_OK=false
+            fi
+          done <<< "$CHECKS"
+
+          if [ "$ALL_OK" = "false" ]; then
+            echo "❌ One or more backends are not healthy — aborting E2E"
+            exit 1
+          fi
+          echo "✅ All backends healthy — proceeding with E2E"
+          HEALTHGATE
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
