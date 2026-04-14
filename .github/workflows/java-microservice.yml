@@ -212,13 +212,18 @@ jobs:
 
       - name: SonarQube Analysis
         if: ${{ inputs.sonar-enabled }}
-        continue-on-error: true
         run: |
           mvn sonar:sonar \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.token=${{ secrets.SONAR_TOKEN }} \
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-            -q
+            -Dsonar.qualitygate.wait=true \
+            -Dsonar.qualitygate.timeout=300 \
+            -Dsonar.java.source=17 \
+            -Dsonar.java.target=17 \
+            "-Dsonar.exclusions=**/generated-sources/**,**/generated/**,**/target/generated-sources/**,**/*MapperImpl.java,**/*MapperImpl.class" \
+            "-Dsonar.coverage.exclusions=**/*Application.java,**/*Config.java,**/*Configuration.java,**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/exception/**,**/*Exception.java,**/*Mapper.java,**/mapper/**,**/enums/**,**/loader/**,**/config/**" \
+            "-Dsonar.cpd.exclusions=**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/enums/**"
 
       - name: Deploy SNAPSHOT to Nexus (même JAR — pas de double build)
         # Utilise deploy:deploy-file pour pousser le JAR déjà construit par mvn verify
@@ -673,13 +678,18 @@ jobs:
 
       - name: SonarQube Analysis (release)
         if: ${{ inputs.sonar-enabled }}
-        continue-on-error: true
         run: |
           mvn sonar:sonar \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
             -Dsonar.token=${{ secrets.SONAR_TOKEN }} \
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
-            -q
+            -Dsonar.qualitygate.wait=true \
+            -Dsonar.qualitygate.timeout=300 \
+            -Dsonar.java.source=17 \
+            -Dsonar.java.target=17 \
+            "-Dsonar.exclusions=**/generated-sources/**,**/generated/**,**/target/generated-sources/**,**/*MapperImpl.java,**/*MapperImpl.class" \
+            "-Dsonar.coverage.exclusions=**/*Application.java,**/*Config.java,**/*Configuration.java,**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/exception/**,**/*Exception.java,**/*Mapper.java,**/mapper/**,**/enums/**,**/loader/**,**/config/**" \
+            "-Dsonar.cpd.exclusions=**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/enums/**"
 
       - name: Deploy to Nexus releases (même JAR — pas de double build)
         # deploy:deploy-file pousse le JAR déjà testé, sans recompilation

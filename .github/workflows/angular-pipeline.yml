@@ -35,6 +35,10 @@ on:
         description: "Port JSON Server (0 = désactivé)"
         type: number
         default: 0
+      sonar-enabled:
+        description: "Activer l'analyse SonarQube (Quality Gate bloquant)"
+        type: boolean
+        default: false
       internal-port:
         description: "Port interne du container (80 pour Nginx SPA, 4000 pour SSR Node)"
         type: number
@@ -61,6 +65,10 @@ on:
       VPS_USER:
         required: false
       VPS_SSH_KEY:
+        required: false
+      SONAR_HOST_URL:
+        required: false
+      SONAR_TOKEN:
         required: false
 
 jobs:
@@ -118,6 +126,23 @@ jobs:
         run: npx ng build --configuration ${{ steps.version.outputs.ng-config }}
         env:
           NODE_OPTIONS: --max_old_space_size=4096
+
+      - name: SonarQube Analysis
+        if: ${{ inputs.sonar-enabled }}
+        uses: SonarSource/sonarqube-scan-action@v4
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+            -Dsonar.sources=src
+            -Dsonar.tests=src
+            -Dsonar.test.inclusions=**/*.spec.ts
+            -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.exclusions=**/*.spec.ts,src/environments/**,src/main.ts,src/polyfills.ts,**/*.stories.ts,**/*.module.ts
+            -Dsonar.coverage.exclusions=src/environments/**,src/main.ts,src/polyfills.ts,**/*.module.ts,**/*.stories.ts,src/app/app.module.ts
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       - name: Set image tags
         id: tag
