@@ -333,7 +333,10 @@ jobs:
       - name: Wait for backends health
         # Gate E2E : vérifie que tous les backends sont UP avant de lancer les tests.
         # Retry × 5 avec backoff 30s (max ~2.5min par backend).
+        # Non-bloquant (continue-on-error) : si VPS SSH inaccessible depuis les runners GitHub,
+        # l'E2E continue — les tests eux-mêmes échoueront si un backend est down.
         if: ${{ inputs.backend-health-checks != '' }}
+        continue-on-error: true
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
