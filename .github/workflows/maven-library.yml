@@ -7,6 +7,10 @@ on:
         description: "Nom de la librairie"
         type: string
         required: true
+      java-version:
+        description: "Version Java (ex: 17, 21)"
+        type: string
+        default: "17"
       maven-goals:
         description: "Goals Maven"
         type: string
@@ -41,10 +45,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Set up Java ${{ inputs.java-version }}
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: ${{ inputs.java-version }}
           distribution: "temurin"
           cache: "maven"
 
