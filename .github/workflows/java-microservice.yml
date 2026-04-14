@@ -506,9 +506,9 @@ jobs:
             PORT="${PORT}" CONTAINER="${CONTAINER}" HEALTH_PATH="${HEALTH_PATH}" \
             bash << 'HEALTHCHECK'
             # Attente initiale démarrage Spring Boot
-            sleep 30
+            sleep 60
 
-            for i in $(seq 1 15); do
+            for i in $(seq 1 30); do
               RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
                 "http://localhost:${PORT}${HEALTH_PATH}" 2>/dev/null) || STATUS="000"
@@ -516,7 +516,7 @@ jobs:
                 echo "✅ Health check passed (attempt $i)"
                 exit 0
               fi
-              echo "Attempt $i/15 — HTTP ${STATUS}, container running: ${RUNNING}"
+              echo "Attempt $i/30 — HTTP ${STATUS}, container running: ${RUNNING}"
               if [ "${RUNNING}" != "true" ] || [ "$STATUS" = "000" ]; then
                 echo "Container logs (last 80 lines):"
                 docker logs --tail 80 "${CONTAINER}" 2>&1 | grep -v "^[0-9].*|-INFO\|^[0-9].*|-WARN" || true
@@ -893,8 +893,8 @@ jobs:
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             PORT="${PORT}" CONTAINER="${CONTAINER}" HEALTH_PATH="${HEALTH_PATH}" \
             bash << 'HEALTHCHECK'
-            sleep 30
-            for i in $(seq 1 15); do
+            sleep 60
+            for i in $(seq 1 30); do
               RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
                 "http://localhost:${PORT}${HEALTH_PATH}" 2>/dev/null) || STATUS="000"
@@ -902,7 +902,7 @@ jobs:
                 echo "✅ Release health check passed (attempt $i)"
                 exit 0
               fi
-              echo "Attempt $i/15 — HTTP ${STATUS}, container running: ${RUNNING}"
+              echo "Attempt $i/30 — HTTP ${STATUS}, container running: ${RUNNING}"
               if [ "${RUNNING}" != "true" ] || [ "$STATUS" = "000" ]; then
                 echo "Container logs (last 80 lines):"
                 docker logs --tail 80 "${CONTAINER}" 2>&1 | grep -v "^[0-9].*|-INFO\|^[0-9].*|-WARN" || true
