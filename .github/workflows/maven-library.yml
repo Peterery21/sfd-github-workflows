@@ -10,7 +10,7 @@ on:
       java-version:
         description: "Version Java (ex: 17, 21)"
         type: string
-        default: "17"
+        default: "21"
       maven-goals:
         description: "Goals Maven"
         type: string

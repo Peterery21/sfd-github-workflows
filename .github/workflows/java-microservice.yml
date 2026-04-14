@@ -58,7 +58,7 @@ on:
       java-version:
         description: "Version Java (17 ou 21)"
         type: string
-        default: "17"
+        default: "21"
       extra-env:
         description: |
           Variables d'environnement supplémentaires pour docker run (une par ligne, format KEY=VALUE).
