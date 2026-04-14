@@ -303,7 +303,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [build, deploy]
-    if: ${{ inputs.e2e-enabled }}
+    if: ${{ inputs.e2e-enabled && needs.build.outputs.app-env != 'prod' }}  # Guard prod — jamais de E2E sur la branche de production
 
     steps:
       - name: Checkout
