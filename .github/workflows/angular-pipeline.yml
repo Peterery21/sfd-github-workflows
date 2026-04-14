@@ -317,10 +317,7 @@ jobs:
     timeout-minutes: 30
     needs: [build, deploy]
     # Tourne si e2e-enabled ET (deploy OK ou deploy skippé sur develop — pas de Docker push sur branches non-release)
-    if: >
-      inputs.e2e-enabled &&
-      needs.build.outputs.app-env != 'prod' &&
-      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+    if: ${{ inputs.e2e-enabled && needs.build.outputs.app-env != 'prod' && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped') }}
 
     steps:
       - name: Checkout
