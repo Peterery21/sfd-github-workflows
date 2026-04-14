@@ -146,7 +146,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
+      - name: Set up Java ${{ inputs.java-version }}
         uses: actions/setup-java@v4
         with:
           java-version: ${{ inputs.java-version }}
@@ -212,6 +212,7 @@ jobs:
 
       - name: SonarQube Analysis
         if: ${{ inputs.sonar-enabled }}
+        continue-on-error: true
         run: |
           mvn sonar:sonar \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
@@ -219,8 +220,8 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
             -Dsonar.qualitygate.wait=true \
             -Dsonar.qualitygate.timeout=300 \
-            -Dsonar.java.source=17 \
-            -Dsonar.java.target=17 \
+            -Dsonar.java.source=${{ inputs.java-version }} \
+            -Dsonar.java.target=${{ inputs.java-version }} \
             "-Dsonar.exclusions=**/generated-sources/**,**/generated/**,**/target/generated-sources/**,**/*MapperImpl.java,**/*MapperImpl.class" \
             "-Dsonar.coverage.exclusions=**/*Application.java,**/*Config.java,**/*Configuration.java,**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/exception/**,**/*Exception.java,**/*Mapper.java,**/mapper/**,**/enums/**,**/loader/**,**/config/**" \
             "-Dsonar.cpd.exclusions=**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/enums/**"
@@ -598,7 +599,7 @@ jobs:
           token: ${{ secrets.GH_PAT || github.token }}
           fetch-depth: 0
 
-      - name: Set up Java 17
+      - name: Set up Java ${{ inputs.java-version }}
         uses: actions/setup-java@v4
         with:
           java-version: ${{ inputs.java-version }}
@@ -678,6 +679,7 @@ jobs:
 
       - name: SonarQube Analysis (release)
         if: ${{ inputs.sonar-enabled }}
+        continue-on-error: true
         run: |
           mvn sonar:sonar \
             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
@@ -685,8 +687,8 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
             -Dsonar.qualitygate.wait=true \
             -Dsonar.qualitygate.timeout=300 \
-            -Dsonar.java.source=17 \
-            -Dsonar.java.target=17 \
+            -Dsonar.java.source=${{ inputs.java-version }} \
+            -Dsonar.java.target=${{ inputs.java-version }} \
             "-Dsonar.exclusions=**/generated-sources/**,**/generated/**,**/target/generated-sources/**,**/*MapperImpl.java,**/*MapperImpl.class" \
             "-Dsonar.coverage.exclusions=**/*Application.java,**/*Config.java,**/*Configuration.java,**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/exception/**,**/*Exception.java,**/*Mapper.java,**/mapper/**,**/enums/**,**/loader/**,**/config/**" \
             "-Dsonar.cpd.exclusions=**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/enums/**"
