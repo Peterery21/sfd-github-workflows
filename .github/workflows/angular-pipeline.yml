@@ -314,7 +314,7 @@ jobs:
   e2e:
     name: E2E Playwright Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     needs: [build, deploy]
     # always() force l'évaluation même si deploy est skippé (develop). Ensuite on vérifie les conditions manuellement.
     if: always() && inputs.e2e-enabled == true && needs.build.result == 'success' && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
