@@ -338,7 +338,7 @@ jobs:
         if: ${{ inputs.backend-health-checks != '' }}
         continue-on-error: true
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             bash -s << 'HEALTHGATE'
           MAX_ATTEMPTS=5
