@@ -316,7 +316,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: [build, deploy]
-    if: ${{ inputs.e2e-enabled && needs.build.outputs.app-env != 'prod' }}  # Guard prod — jamais de E2E sur la branche de production
+    # Tourne si e2e-enabled ET (deploy OK ou deploy skippé sur develop — pas de Docker push sur branches non-release)
+    if: >
+      inputs.e2e-enabled &&
+      needs.build.outputs.app-env != 'prod' &&
+      (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
 
     steps:
       - name: Checkout
