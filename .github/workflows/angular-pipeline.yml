@@ -19,6 +19,10 @@ on:
         description: "Branche de production"
         type: string
         default: "master"
+      dev-branch:
+        description: "Branche à déployer sur l'environnement de développement"
+        type: string
+        default: ""
       e2e-enabled:
         description: "Activer les tests E2E Playwright post-deploy"
         type: boolean
@@ -162,13 +166,13 @@ jobs:
           echo "port-mapping=${PORT}" >> $GITHUB_OUTPUT
 
       - name: Login to Docker Registry
-        if: github.ref_name == inputs.release-branch
+        if: github.ref_name == inputs.release-branch || (inputs.dev-branch != '' && github.ref_name == inputs.dev-branch)
         run: |
           echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ secrets.REGISTRY_URL }} \
             -u ${{ secrets.REGISTRY_USER }} --password-stdin
 
       - name: Build & Push Docker image
-        if: github.ref_name == inputs.release-branch
+        if: github.ref_name == inputs.release-branch || (inputs.dev-branch != '' && github.ref_name == inputs.dev-branch)
         # --build-arg APP_ENV comme Jenkins: NodeUtils.buildAngular → DockerUtils.buildImage(buildArgs: "--build-arg APP_ENV=${envName}")
         run: |
           docker build \
@@ -184,7 +188,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build
-    if: github.ref_name == inputs.release-branch
+    if: github.ref_name == inputs.release-branch || (inputs.dev-branch != '' && github.ref_name == inputs.dev-branch)
 
     steps:
       - name: Setup SSH key
