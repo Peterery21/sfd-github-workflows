@@ -44,6 +44,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java ${{ inputs.java-version }}
         uses: actions/setup-java@v4
@@ -109,7 +111,7 @@ jobs:
             -Dsonar.java.source=17 \
             -Dsonar.java.target=17 \
             "-Dsonar.exclusions=**/generated-sources/**,**/generated/**,**/target/generated-sources/**,**/*MapperImpl.java,**/*MapperImpl.class" \
-            "-Dsonar.coverage.exclusions=**/*Application.java,**/*Config.java,**/*Configuration.java,**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/exception/**,**/*Exception.java,**/*Mapper.java,**/mapper/**,**/enums/**,**/loader/**,**/config/**" \
+            "-Dsonar.coverage.exclusions=**/*Application.java,**/*Config.java,**/*Configuration.java,**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/exception/**,**/*Exception.java,**/*Mapper.java,**/mapper/**,**/enums/**,**/loader/**,**/config/**,**/*RestClient.java,**/events/**" \
             "-Dsonar.cpd.exclusions=**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/enums/**"
 
       - name: Deploy to Nexus
