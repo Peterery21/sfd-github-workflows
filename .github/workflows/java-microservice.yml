@@ -172,8 +172,14 @@ jobs:
             if [ -n "$NEXUS_URL" ]; then
               echo '  <profiles>'
               echo '    <profile>'
-              echo '      <id>nexus-snapshots</id>'
+              echo '      <id>nexus-private</id>'
               echo '      <repositories>'
+              echo '        <repository>'
+              echo '          <id>nexus-releases</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-releases/</url>"
+              echo '          <releases><enabled>true</enabled></releases>'
+              echo '          <snapshots><enabled>false</enabled></snapshots>'
+              echo '        </repository>'
               echo '        <repository>'
               echo '          <id>nexus-snapshots</id>'
               echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
@@ -182,6 +188,12 @@ jobs:
               echo '        </repository>'
               echo '      </repositories>'
               echo '      <pluginRepositories>'
+              echo '        <pluginRepository>'
+              echo '          <id>nexus-releases</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-releases/</url>"
+              echo '          <releases><enabled>true</enabled></releases>'
+              echo '          <snapshots><enabled>false</enabled></snapshots>'
+              echo '        </pluginRepository>'
               echo '        <pluginRepository>'
               echo '          <id>nexus-snapshots</id>'
               echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
@@ -192,7 +204,7 @@ jobs:
               echo '    </profile>'
               echo '  </profiles>'
               echo '  <activeProfiles>'
-              echo '    <activeProfile>nexus-snapshots</activeProfile>'
+              echo '    <activeProfile>nexus-private</activeProfile>'
               echo '  </activeProfiles>'
             fi
             echo '</settings>'
@@ -632,8 +644,14 @@ jobs:
             if [ -n "$NEXUS_URL" ]; then
               echo '  <profiles>'
               echo '    <profile>'
-              echo '      <id>nexus-snapshots</id>'
+              echo '      <id>nexus-private</id>'
               echo '      <repositories>'
+              echo '        <repository>'
+              echo '          <id>nexus-releases</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-releases/</url>"
+              echo '          <releases><enabled>true</enabled></releases>'
+              echo '          <snapshots><enabled>false</enabled></snapshots>'
+              echo '        </repository>'
               echo '        <repository>'
               echo '          <id>nexus-snapshots</id>'
               echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
@@ -642,6 +660,12 @@ jobs:
               echo '        </repository>'
               echo '      </repositories>'
               echo '      <pluginRepositories>'
+              echo '        <pluginRepository>'
+              echo '          <id>nexus-releases</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-releases/</url>"
+              echo '          <releases><enabled>true</enabled></releases>'
+              echo '          <snapshots><enabled>false</enabled></snapshots>'
+              echo '        </pluginRepository>'
               echo '        <pluginRepository>'
               echo '          <id>nexus-snapshots</id>'
               echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
@@ -652,7 +676,7 @@ jobs:
               echo '    </profile>'
               echo '  </profiles>'
               echo '  <activeProfiles>'
-              echo '    <activeProfile>nexus-snapshots</activeProfile>'
+              echo '    <activeProfile>nexus-private</activeProfile>'
               echo '  </activeProfiles>'
             fi
             echo '</settings>'
