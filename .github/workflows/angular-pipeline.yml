@@ -380,10 +380,38 @@ jobs:
             [ -z "$entry" ] && continue
             NAME=$(echo "$entry" | cut -d: -f1 | xargs)
             PORT=$(echo "$entry" | cut -d: -f2 | xargs)
-            echo "⏳ Checking $NAME on port $PORT..."
+            API_PATH=$(echo "$entry" | cut -d: -f3- | xargs)
+
+            if [ -z "$API_PATH" ] || [ "$API_PATH" = "$entry" ]; then
+              case "$NAME" in
+                sfd-commun) API_PATH="/api/preference" ;;
+                sfd-client) API_PATH="/api/client" ;;
+                sfd-caisse) API_PATH="/api/caisse" ;;
+                sfd-epargne) API_PATH="/api/epargne" ;;
+                sfd-credit) API_PATH="/api/credit" ;;
+                sfd-budget) API_PATH="/api/budget" ;;
+                sfd-commercial) API_PATH="/api/commercial" ;;
+                sfd-rh) API_PATH="/api/rh" ;;
+                sfd-paie) API_PATH="/api/paie" ;;
+                sfd-stock) API_PATH="/api/stock" ;;
+                sfd-transfert) API_PATH="/api/transfert" ;;
+                sfd-reporting) API_PATH="/api/reporting" ;;
+                sfd-comptabilite) API_PATH="/api/comptabilite" ;;
+                sfd-immobilisation) API_PATH="/api/immobilisation" ;;
+                sfd-suivi-evaluation) API_PATH="/api/suivi-evaluation" ;;
+                sfd-portail-client) API_PATH="/api/portail" ;;
+                sfd-agent-mobile) API_PATH="/api/agent-mobile" ;;
+                *)
+                  API_PATH="/api/${NAME#sfd-}"
+                  ;;
+              esac
+            fi
+
+            HEALTH_URL="http://localhost:${PORT}${API_PATH}/actuator/health"
+            echo "⏳ Checking $NAME on port $PORT via ${HEALTH_URL}..."
             ok=false
             for i in $(seq 1 $MAX_ATTEMPTS); do
-              if curl -sf --max-time 5 "http://localhost:${PORT}/api/${NAME}/actuator/health" > /dev/null 2>&1; then
+              if curl -sf --max-time 5 "${HEALTH_URL}" > /dev/null 2>&1; then
                 echo "  ✅ $NAME UP"
                 ok=true
                 break
@@ -392,7 +420,7 @@ jobs:
               sleep $WAIT_SECONDS
             done
             if [ "$ok" = "false" ]; then
-              echo "  ❌ $NAME FAILED after $MAX_ATTEMPTS attempts on port $PORT"
+              echo "  ❌ $NAME FAILED after $MAX_ATTEMPTS attempts via ${HEALTH_URL}"
               ALL_OK=false
             fi
           done <<< "$CHECKS"
