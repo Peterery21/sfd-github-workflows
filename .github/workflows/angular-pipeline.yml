@@ -74,6 +74,10 @@ on:
         required: false
       SONAR_TOKEN:
         required: false
+      E2E_USERNAME:
+        required: false
+      E2E_PASSWORD:
+        required: false
 
 jobs:
   # ─────────────────────────────────────────
