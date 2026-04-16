@@ -153,48 +153,55 @@ jobs:
           distribution: "temurin"
           cache: "maven"
 
-      - name: Configure Maven (Nexus mirror)
+      - name: Configure Maven repositories
         env:
           NEXUS_URL: ${{ secrets.NEXUS_URL }}
           NEXUS_USER: ${{ secrets.NEXUS_USER }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
           mkdir -p ~/.m2
-          cat > ~/.m2/settings.xml << 'SETTINGSEOF'
-          <settings>
-            <mirrors>
-              <mirror>
-                <id>nexus-public</id>
-                <mirrorOf>external:*,!nexus-snapshots</mirrorOf>
-                <url>${NEXUS_URL}/repository/maven-public/</url>
-              </mirror>
-            </mirrors>
-            <servers>
-              <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-              <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-              <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-              <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-            </servers>
-            <profiles>
-              <profile>
-                <id>nexus-snapshots</id>
-                <repositories>
-                  <repository>
-                    <id>nexus-snapshots</id>
-                    <url>${NEXUS_URL}/repository/maven-snapshots/</url>
-                    <releases><enabled>false</enabled></releases>
-                    <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>
-                  </repository>
-                </repositories>
-              </profile>
-            </profiles>
-            <activeProfiles>
-              <activeProfile>nexus-snapshots</activeProfile>
-            </activeProfiles>
-          </settings>
-          SETTINGSEOF
-          # Substitute env vars into settings.xml
-          sed -i "s|\${NEXUS_URL}|${NEXUS_URL}|g; s|\${NEXUS_USER}|${NEXUS_USER}|g; s|\${NEXUS_PASSWORD}|${NEXUS_PASSWORD}|g" ~/.m2/settings.xml
+          {
+            echo '<settings>'
+            echo '  <servers>'
+            if [ -n "$NEXUS_URL" ]; then
+              echo "    <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>"
+              echo "    <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>"
+              echo "    <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>"
+            fi
+            echo '  </servers>'
+            if [ -n "$NEXUS_URL" ]; then
+              echo '  <profiles>'
+              echo '    <profile>'
+              echo '      <id>nexus-snapshots</id>'
+              echo '      <repositories>'
+              echo '        <repository>'
+              echo '          <id>nexus-snapshots</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
+              echo '          <releases><enabled>false</enabled></releases>'
+              echo '          <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>'
+              echo '        </repository>'
+              echo '      </repositories>'
+              echo '      <pluginRepositories>'
+              echo '        <pluginRepository>'
+              echo '          <id>nexus-snapshots</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
+              echo '          <releases><enabled>false</enabled></releases>'
+              echo '          <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>'
+              echo '        </pluginRepository>'
+              echo '      </pluginRepositories>'
+              echo '    </profile>'
+              echo '  </profiles>'
+              echo '  <activeProfiles>'
+              echo '    <activeProfile>nexus-snapshots</activeProfile>'
+              echo '  </activeProfiles>'
+            fi
+            echo '</settings>'
+          } > ~/.m2/settings.xml
+          if [ -n "$NEXUS_URL" ]; then
+            echo "Configured Maven Central for public artifacts and Nexus snapshots for private dependencies."
+          else
+            echo "NEXUS_URL is not set; resolving public artifacts via Maven Central only."
+          fi
 
       - name: Determine version
         id: version
@@ -606,48 +613,55 @@ jobs:
           distribution: "temurin"
           cache: "maven"
 
-      - name: Configure Maven (Nexus mirror)
+      - name: Configure Maven repositories
         env:
           NEXUS_URL: ${{ secrets.NEXUS_URL }}
           NEXUS_USER: ${{ secrets.NEXUS_USER }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
           mkdir -p ~/.m2
-          cat > ~/.m2/settings.xml << 'SETTINGSEOF'
-          <settings>
-            <mirrors>
-              <mirror>
-                <id>nexus-public</id>
-                <mirrorOf>external:*,!nexus-snapshots</mirrorOf>
-                <url>${NEXUS_URL}/repository/maven-public/</url>
-              </mirror>
-            </mirrors>
-            <servers>
-              <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-              <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-              <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-              <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-            </servers>
-            <profiles>
-              <profile>
-                <id>nexus-snapshots</id>
-                <repositories>
-                  <repository>
-                    <id>nexus-snapshots</id>
-                    <url>${NEXUS_URL}/repository/maven-snapshots/</url>
-                    <releases><enabled>false</enabled></releases>
-                    <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>
-                  </repository>
-                </repositories>
-              </profile>
-            </profiles>
-            <activeProfiles>
-              <activeProfile>nexus-snapshots</activeProfile>
-            </activeProfiles>
-          </settings>
-          SETTINGSEOF
-          # Substitute env vars into settings.xml
-          sed -i "s|\${NEXUS_URL}|${NEXUS_URL}|g; s|\${NEXUS_USER}|${NEXUS_USER}|g; s|\${NEXUS_PASSWORD}|${NEXUS_PASSWORD}|g" ~/.m2/settings.xml
+          {
+            echo '<settings>'
+            echo '  <servers>'
+            if [ -n "$NEXUS_URL" ]; then
+              echo "    <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>"
+              echo "    <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>"
+              echo "    <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>"
+            fi
+            echo '  </servers>'
+            if [ -n "$NEXUS_URL" ]; then
+              echo '  <profiles>'
+              echo '    <profile>'
+              echo '      <id>nexus-snapshots</id>'
+              echo '      <repositories>'
+              echo '        <repository>'
+              echo '          <id>nexus-snapshots</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
+              echo '          <releases><enabled>false</enabled></releases>'
+              echo '          <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>'
+              echo '        </repository>'
+              echo '      </repositories>'
+              echo '      <pluginRepositories>'
+              echo '        <pluginRepository>'
+              echo '          <id>nexus-snapshots</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
+              echo '          <releases><enabled>false</enabled></releases>'
+              echo '          <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>'
+              echo '        </pluginRepository>'
+              echo '      </pluginRepositories>'
+              echo '    </profile>'
+              echo '  </profiles>'
+              echo '  <activeProfiles>'
+              echo '    <activeProfile>nexus-snapshots</activeProfile>'
+              echo '  </activeProfiles>'
+            fi
+            echo '</settings>'
+          } > ~/.m2/settings.xml
+          if [ -n "$NEXUS_URL" ]; then
+            echo "Configured Maven Central for public artifacts and Nexus snapshots for private dependencies."
+          else
+            echo "NEXUS_URL is not set; resolving public artifacts via Maven Central only."
+          fi
 
       - name: Compute release version
         id: release-version
@@ -912,4 +926,3 @@ jobs:
             echo "❌ Release health check failed"
             exit 1
           HEALTHCHECK
-
