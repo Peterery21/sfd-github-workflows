@@ -255,7 +255,10 @@ jobs:
         run: |
           POM_VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
           if [[ "$POM_VERSION" == *"-SNAPSHOT" ]]; then
-            JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | head -1)
+            JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*-exec.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | sort | head -1)
+            if [ -z "$JAR" ]; then
+              JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | sort | head -1)
+            fi
             if [ -z "$JAR" ]; then
               echo "⚠️ No JAR found in target/ — skipping Nexus deploy"
               exit 0
@@ -278,11 +281,23 @@ jobs:
             echo "Release version ${POM_VERSION} — skipping Nexus deploy (use Release workflow)"
           fi
 
+      - name: Prepare Docker JAR artifact
+        run: |
+          DOCKER_JAR=$(find target -maxdepth 1 -name "*-exec.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | sort | head -1)
+          if [ -z "$DOCKER_JAR" ]; then
+            DOCKER_JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | sort | head -1)
+          fi
+          if [ -z "$DOCKER_JAR" ]; then
+            echo "❌ No runnable JAR found in target/"
+            exit 1
+          fi
+          cp "$DOCKER_JAR" target/app.jar
+
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: jar-${{ github.run_number }}
-          path: target/*.jar
+          path: target/app.jar
           retention-days: 1
 
   # ─────────────────────────────────────────
@@ -737,7 +752,10 @@ jobs:
           NEXUS_URL: ${{ secrets.NEXUS_URL }}
         run: |
           VERSION="${{ steps.release-version.outputs.version }}"
-          JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | head -1)
+          JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*-exec.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | sort | head -1)
+          if [ -z "$JAR" ]; then
+            JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | sort | head -1)
+          fi
           GROUP_ID=$(mvn help:evaluate -Dexpression=project.groupId -q -DforceStdout)
           ARTIFACT_ID=$(mvn help:evaluate -Dexpression=project.artifactId -q -DforceStdout)
           echo "Deploying ${JAR} → Nexus releases (${GROUP_ID}:${ARTIFACT_ID}:${VERSION})..."
@@ -761,6 +779,17 @@ jobs:
 
           echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ secrets.REGISTRY_URL }} \
             -u ${{ secrets.REGISTRY_USER }} --password-stdin
+
+          DOCKER_JAR=$(find target -maxdepth 1 -name "*-exec.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | sort | head -1)
+          if [ -z "$DOCKER_JAR" ]; then
+            DOCKER_JAR=$(find target -maxdepth 1 -name "*.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" | sort | head -1)
+          fi
+          if [ -z "$DOCKER_JAR" ]; then
+            echo "❌ No runnable JAR found in target/"
+            exit 1
+          fi
+          cp "$DOCKER_JAR" target/app.jar
+          find target -maxdepth 1 -name "*.jar" ! -name "app.jar" ! -name "*sources*" ! -name "*javadoc*" ! -name "*tests*" -delete
 
           docker build -t "${IMAGE_VERSIONED}" -t "${IMAGE_LATEST}" .
           docker push "${IMAGE_VERSIONED}"
