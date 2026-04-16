@@ -61,39 +61,55 @@ jobs:
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
         run: |
           mkdir -p ~/.m2
-          cat > ~/.m2/settings.xml << EOF
-          <settings>
-            <mirrors>
-              <mirror>
-                <id>nexus-public</id>
-                <mirrorOf>external:*,!nexus-snapshots</mirrorOf>
-                <url>${NEXUS_URL}/repository/maven-public/</url>
-              </mirror>
-            </mirrors>
-            <servers>
-              <server><id>nexus-public</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-              <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-              <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-              <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>
-            </servers>
-            <profiles>
-              <profile>
-                <id>nexus-snapshots</id>
-                <repositories>
-                  <repository>
-                    <id>nexus-snapshots</id>
-                    <url>${NEXUS_URL}/repository/maven-snapshots/</url>
-                    <releases><enabled>false</enabled></releases>
-                    <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>
-                  </repository>
-                </repositories>
-              </profile>
-            </profiles>
-            <activeProfiles>
-              <activeProfile>nexus-snapshots</activeProfile>
-            </activeProfiles>
-          </settings>
-          EOF
+          {
+            echo '<settings>'
+            echo '  <servers>'
+            if [ -n "$NEXUS_URL" ]; then
+              echo "    <server><id>nexus</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>"
+              echo "    <server><id>nexus-snapshots</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>"
+              echo "    <server><id>nexus-releases</id><username>${NEXUS_USER}</username><password>${NEXUS_PASSWORD}</password></server>"
+            fi
+            echo '  </servers>'
+            if [ -n "$NEXUS_URL" ]; then
+              echo '  <profiles>'
+              echo '    <profile>'
+              echo '      <id>nexus-private</id>'
+              echo '      <repositories>'
+              echo '        <repository>'
+              echo '          <id>nexus-releases</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-releases/</url>"
+              echo '          <releases><enabled>true</enabled></releases>'
+              echo '          <snapshots><enabled>false</enabled></snapshots>'
+              echo '        </repository>'
+              echo '        <repository>'
+              echo '          <id>nexus-snapshots</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
+              echo '          <releases><enabled>false</enabled></releases>'
+              echo '          <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>'
+              echo '        </repository>'
+              echo '      </repositories>'
+              echo '      <pluginRepositories>'
+              echo '        <pluginRepository>'
+              echo '          <id>nexus-releases</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-releases/</url>"
+              echo '          <releases><enabled>true</enabled></releases>'
+              echo '          <snapshots><enabled>false</enabled></snapshots>'
+              echo '        </pluginRepository>'
+              echo '        <pluginRepository>'
+              echo '          <id>nexus-snapshots</id>'
+              echo "          <url>${NEXUS_URL}/repository/maven-snapshots/</url>"
+              echo '          <releases><enabled>false</enabled></releases>'
+              echo '          <snapshots><enabled>true</enabled><updatePolicy>always</updatePolicy></snapshots>'
+              echo '        </pluginRepository>'
+              echo '      </pluginRepositories>'
+              echo '    </profile>'
+              echo '  </profiles>'
+              echo '  <activeProfiles>'
+              echo '    <activeProfile>nexus-private</activeProfile>'
+              echo '  </activeProfiles>'
+            fi
+            echo '</settings>'
+          } > ~/.m2/settings.xml
           echo "settings.xml written"
 
       - name: Build & Test
@@ -108,8 +124,8 @@ jobs:
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
             -Dsonar.qualitygate.wait=true \
             -Dsonar.qualitygate.timeout=300 \
-            -Dsonar.java.source=17 \
-            -Dsonar.java.target=17 \
+            -Dsonar.java.source=${{ inputs.java-version }} \
+            -Dsonar.java.target=${{ inputs.java-version }} \
             "-Dsonar.exclusions=**/generated-sources/**,**/generated/**,**/target/generated-sources/**,**/*MapperImpl.java,**/*MapperImpl.class" \
             "-Dsonar.coverage.exclusions=**/*Application.java,**/*Config.java,**/*Configuration.java,**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/exception/**,**/*Exception.java,**/*Mapper.java,**/mapper/**,**/enums/**,**/loader/**,**/config/**,**/*RestClient.java,**/events/**" \
             "-Dsonar.cpd.exclusions=**/*Dto.java,**/dto/**,**/*Entity.java,**/entity/**,**/enums/**"
