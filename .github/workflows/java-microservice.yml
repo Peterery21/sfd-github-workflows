@@ -366,7 +366,7 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     needs: [build, docker]
     if: ${{ !inputs.release }}
 
@@ -514,7 +514,9 @@ jobs:
               for pair in "${ENV_PAIRS[@]}"; do
                 [[ -n "$pair" ]] && echo "$pair" >> "$EXTRA_ENV_FILE"
               done
-              echo "📋 Extra env vars: $(wc -l < $EXTRA_ENV_FILE) variables"
+              echo "📋 Extra env vars: $(wc -l < "$EXTRA_ENV_FILE") variables"
+              grep -E '^(DATABASE_POOL_|APP_RABBITMQ_LISTENERS_AUTO_STARTUP|PREFERENCE_SERVICE_URL|CLIENT_SERVICE_URL|COMPTABILITE_SERVICE_URL)=' \
+                "$EXTRA_ENV_FILE" || true
             fi
             ENV_FILE_OPT=""
             [ -s "$EXTRA_ENV_FILE" ] && ENV_FILE_OPT="--env-file $EXTRA_ENV_FILE"
@@ -557,6 +559,11 @@ jobs:
             bash << 'HEALTHCHECK'
             # Attente initiale démarrage Spring Boot
             sleep 60
+
+            echo "Container env snapshot:"
+            docker inspect "${CONTAINER}" --format='{{range .Config.Env}}{{println .}}{{end}}' \
+              | grep -E '^(SPRING_PROFILES_ACTIVE|DATABASE_POOL_|APP_RABBITMQ_LISTENERS_AUTO_STARTUP|PREFERENCE_SERVICE_URL|CLIENT_SERVICE_URL|COMPTABILITE_SERVICE_URL)=' \
+              || true
 
             for i in $(seq 1 30); do
               RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
@@ -977,6 +984,10 @@ jobs:
             PORT="${PORT}" CONTAINER="${CONTAINER}" HEALTH_PATH="${HEALTH_PATH}" \
             bash << 'HEALTHCHECK'
             sleep 60
+            echo "Container env snapshot:"
+            docker inspect "${CONTAINER}" --format='{{range .Config.Env}}{{println .}}{{end}}' \
+              | grep -E '^(SPRING_PROFILES_ACTIVE|DATABASE_POOL_|APP_RABBITMQ_LISTENERS_AUTO_STARTUP|PREFERENCE_SERVICE_URL|CLIENT_SERVICE_URL|COMPTABILITE_SERVICE_URL)=' \
+              || true
             for i in $(seq 1 30); do
               RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
               STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
