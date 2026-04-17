@@ -371,8 +371,8 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             bash -s << 'HEALTHGATE'
-          MAX_ATTEMPTS=2
-          WAIT_SECONDS=5
+          MAX_ATTEMPTS=6
+          WAIT_SECONDS=10
           CHECKS='${{ inputs.backend-health-checks }}'
           ALL_OK=true
 
