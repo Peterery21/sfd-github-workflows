@@ -428,6 +428,9 @@ jobs:
           fi
 
           JVM_OPTS_Q="$(printf '%q' "$JVM_OPTS")"
+          EXTRA_ENV_ENCODED_Q="$(printf '%q' "$EXTRA_ENV_ENCODED")"
+          VOLUMES_ENCODED_Q="$(printf '%q' "$VOLUMES_ENCODED")"
+          DOCKER_NETWORK_INPUT_Q="$(printf '%q' "$DOCKER_NETWORK_INPUT")"
           ssh -i ~/.ssh/deploy_key \
             -o StrictHostKeyChecking=no \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
@@ -439,9 +442,9 @@ jobs:
             MEMORY_LIMIT="$MEMORY_LIMIT" \
             UPLOAD_FOLDER="$UPLOAD_FOLDER" \
             IMAGE="$IMAGE" \
-            EXTRA_ENV_ENCODED="$EXTRA_ENV_ENCODED" \
-            VOLUMES_ENCODED="$VOLUMES_ENCODED" \
-            DOCKER_NETWORK_INPUT="$DOCKER_NETWORK_INPUT" \
+            EXTRA_ENV_ENCODED="$EXTRA_ENV_ENCODED_Q" \
+            VOLUMES_ENCODED="$VOLUMES_ENCODED_Q" \
+            DOCKER_NETWORK_INPUT="$DOCKER_NETWORK_INPUT_Q" \
             bash << 'ENDSSH'
             set -e
 
