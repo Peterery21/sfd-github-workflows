@@ -68,6 +68,12 @@ on:
             CLIENT_SERVICE_URL=http://sfd-client{DEV_SUFFIX}:4598/api/client
         type: string
         default: ""
+      extra-env-dev:
+        description: |
+          Variables d'environnement supplémentaires injectées uniquement en déploiement dev.
+          Même format que extra-env (une par ligne, KEY=VALUE) et même support du placeholder {DEV_SUFFIX}.
+        type: string
+        default: ""
       volumes:
         description: |
           Volumes Docker (un par ligne, format src:dest). Remplace les volumes par défaut.
@@ -382,6 +388,7 @@ jobs:
           MEMORY_LIMIT: ${{ inputs.memory-limit }}
           UPLOAD_FOLDER: ${{ inputs.upload-folder }}
           EXTRA_ENV_TEMPLATE: ${{ inputs.extra-env }}
+          EXTRA_ENV_DEV_TEMPLATE: ${{ inputs.extra-env-dev }}
           VOLUMES_TEMPLATE: ${{ inputs.volumes }}
           DOCKER_NETWORK_INPUT: ${{ inputs.docker-network }}
         run: |
@@ -394,10 +401,19 @@ jobs:
             DEV_SUFFIX="-dev"
           fi
 
-          # Process extra-env: replace {DEV_SUFFIX} placeholder and encode as pipe-separated string
+          # Process extra-env: base env + optional dev-only env, replace {DEV_SUFFIX},
+          # then encode as pipe-separated string for the SSH handoff.
           EXTRA_ENV_ENCODED=""
-          if [ -n "$EXTRA_ENV_TEMPLATE" ]; then
-            EXTRA_ENV_ENCODED=$(echo "$EXTRA_ENV_TEMPLATE" | sed "s/{DEV_SUFFIX}/${DEV_SUFFIX}/g" | tr '\n' '|' | sed 's/|$//')
+          EXTRA_ENV_CONTENT="$EXTRA_ENV_TEMPLATE"
+          if [ "$PROFILE" != "prod" ] && [ -n "$EXTRA_ENV_DEV_TEMPLATE" ]; then
+            if [ -n "$EXTRA_ENV_CONTENT" ]; then
+              EXTRA_ENV_CONTENT="${EXTRA_ENV_CONTENT}"$'\n'"${EXTRA_ENV_DEV_TEMPLATE}"
+            else
+              EXTRA_ENV_CONTENT="${EXTRA_ENV_DEV_TEMPLATE}"
+            fi
+          fi
+          if [ -n "$EXTRA_ENV_CONTENT" ]; then
+            EXTRA_ENV_ENCODED=$(echo "$EXTRA_ENV_CONTENT" | sed "s/{DEV_SUFFIX}/${DEV_SUFFIX}/g" | tr '\n' '|' | sed 's/|$//')
           fi
 
           # Process volumes: replace {PROFILE} placeholder and encode as pipe-separated string
