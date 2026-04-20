@@ -155,16 +155,23 @@ jobs:
       - name: Set image tags
         id: tag
         run: |
+          # Strip protocol prefix (https:// ou http://) + trailing slash du REGISTRY_URL
+          REGISTRY="${{ secrets.REGISTRY_URL }}"
+          REGISTRY="${REGISTRY#https://}"
+          REGISTRY="${REGISTRY#http://}"
+          REGISTRY="${REGISTRY%/}"
+
           BRANCH=${GITHUB_REF_NAME}
           if [ "$BRANCH" = "${{ inputs.release-branch }}" ]; then
-            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}:latest"
+            IMAGE="${REGISTRY}/${{ inputs.app-name }}:latest"
             CONTAINER="${{ inputs.app-name }}"
             PORT="${{ inputs.prod-port }}:${{ inputs.internal-port }}"
           else
-            IMAGE="${{ secrets.REGISTRY_URL }}/${{ inputs.app-name }}-dev:${{ steps.version.outputs.version }}"
+            IMAGE="${REGISTRY}/${{ inputs.app-name }}-dev:${{ steps.version.outputs.version }}"
             CONTAINER="${{ inputs.app-name }}-dev"
             PORT="${{ inputs.dev-port }}:${{ inputs.internal-port }}"
           fi
+          echo "registry-host=${REGISTRY}" >> $GITHUB_OUTPUT
           echo "image-tag=${IMAGE}" >> $GITHUB_OUTPUT
           echo "container-name=${CONTAINER}" >> $GITHUB_OUTPUT
           echo "port-mapping=${PORT}" >> $GITHUB_OUTPUT
@@ -172,18 +179,19 @@ jobs:
       - name: Login to Docker Registry
         if: github.ref_name == inputs.release-branch || (inputs.dev-branch != '' && github.ref_name == inputs.dev-branch)
         run: |
+          REGISTRY="${{ steps.tag.outputs.registry-host }}"
           for attempt in 1 2 3; do
             echo "Docker login attempt $attempt/3..."
-            if echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ secrets.REGISTRY_URL }} \
-                -u ${{ secrets.REGISTRY_USER }} --password-stdin; then
-              echo "Login successful on attempt $attempt"
+            if echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "${REGISTRY}" \
+                -u "${{ secrets.REGISTRY_USER }}" --password-stdin; then
+              echo "✅ Login successful on attempt $attempt"
               break
             fi
             if [ $attempt -lt 3 ]; then
               echo "Login failed, retrying in 30s..."
               sleep 30
             else
-              echo "All login attempts failed"
+              echo "❌ All login attempts failed — vérifier REGISTRY_URL (sans https://), REGISTRY_USER, REGISTRY_PASSWORD"
               exit 1
             fi
           done
@@ -238,10 +246,15 @@ jobs:
           RELEASE_BRANCH: ${{ inputs.release-branch }}
         run: |
           # Reconstruct full image URL (avoids GitHub secret masking in outputs)
+          # Strip protocol prefix (https:// ou http://) + trailing slash
+          REGISTRY="${{ secrets.REGISTRY_URL }}"
+          REGISTRY="${REGISTRY#https://}"
+          REGISTRY="${REGISTRY#http://}"
+          REGISTRY="${REGISTRY%/}"
           if [ "$APP_ENV" = "prod" ]; then
-            IMAGE="${{ secrets.REGISTRY_URL }}/${APP_NAME}:latest"
+            IMAGE="${REGISTRY}/${APP_NAME}:latest"
           else
-            IMAGE="${{ secrets.REGISTRY_URL }}/${APP_NAME}-dev:${{ needs.build.outputs.version }}"
+            IMAGE="${REGISTRY}/${APP_NAME}-dev:${{ needs.build.outputs.version }}"
           fi
 
           ssh -i ~/.ssh/deploy_key \
