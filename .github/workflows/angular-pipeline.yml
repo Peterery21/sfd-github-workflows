@@ -333,12 +333,16 @@ jobs:
             bash << 'HEALTHCHECK'
             sleep 5
 
+            # Always dump initial nginx logs (helps diagnose startup failures even when running: true)
+            echo "--- Initial container logs (startup) ---"
+            docker logs --tail 50 "${CONTAINER}" 2>&1 || true
+            echo "--- end initial logs ---"
+
             # Vérifier que le conteneur est encore en vie
             RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
             echo "Container ${CONTAINER} running: ${RUNNING}"
             if [ "${RUNNING}" != "true" ]; then
-              echo "❌ Container exited immediately — logs:"
-              docker logs --tail 30 "${CONTAINER}" 2>&1 || true
+              echo "❌ Container exited immediately"
               echo "--- docker ps ---"
               docker ps -a --filter "name=${CONTAINER}"
             fi
@@ -352,10 +356,10 @@ jobs:
               # Re-check container state
               RUNNING=$(docker inspect --format='{{.State.Running}}' "${CONTAINER}" 2>/dev/null || echo "false")
               echo "Attempt $i/15 — HTTP ${STATUS}, container running: ${RUNNING}"
-              if [ "${RUNNING}" != "true" ]; then
-                echo "Container logs:"
-                docker logs --tail 20 "${CONTAINER}" 2>&1 || true
-              fi
+              # Always dump logs on failure attempts to catch nginx startup/proxy errors
+              echo "--- container logs (attempt $i) ---"
+              docker logs --tail 20 "${CONTAINER}" 2>&1 || true
+              echo "--- end logs ---"
               sleep 10
             done
 
