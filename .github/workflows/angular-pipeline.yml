@@ -525,7 +525,7 @@ jobs:
         run: mkdir -p .auth
 
       - name: Run E2E tests
-        if: ${{ steps.setup-ssh.outputs.reachable == 'true' }}
+        if: ${{ inputs.e2e-base-url != '' || steps.setup-ssh.outputs.reachable == 'true' }}
         run: ${{ inputs.e2e-command }}
         env:
           CI: true
