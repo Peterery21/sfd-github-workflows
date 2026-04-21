@@ -400,16 +400,26 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up SSH key
+        id: setup-ssh
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
+          if timeout 12 ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 -o BatchMode=yes -q \
+              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} exit 2>/dev/null; then
+            echo "reachable=true" >> $GITHUB_OUTPUT
+            echo "✅ VPS SSH reachable"
+          else
+            echo "reachable=false" >> $GITHUB_OUTPUT
+            echo "⚠️ VPS SSH unreachable — E2E steps will be skipped"
+          fi
 
       - name: Wait for backends health
         # Gate E2E bloquant : tous les backends requis doivent être UP avant de lancer les tests.
         # Retry × 5 avec backoff 30s (max ~2.5min par backend).
-        if: ${{ inputs.backend-health-checks != '' }}
+        if: ${{ inputs.backend-health-checks != '' && steps.setup-ssh.outputs.reachable == 'true' }}
         run: |
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
@@ -492,9 +502,10 @@ jobs:
       - name: Open SSH tunnel to VPS
         # Port 4630 peut être bloqué par le firewall VPS pour les IPs externes.
         # On ouvre un tunnel SSH pour que les tests Playwright atteignent l'app via localhost.
+        if: ${{ steps.setup-ssh.outputs.reachable == 'true' }}
         run: |
           PORT=$(echo "${{ needs.build.outputs.port-mapping }}" | cut -d: -f1)
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 \
             -L ${PORT}:localhost:${PORT} \
             -N -f \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
@@ -514,6 +525,7 @@ jobs:
         run: mkdir -p .auth
 
       - name: Run E2E tests
+        if: ${{ steps.setup-ssh.outputs.reachable == 'true' }}
         run: ${{ inputs.e2e-command }}
         env:
           CI: true
