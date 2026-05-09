@@ -316,6 +316,7 @@ jobs:
     needs: build
     if: ${{ !inputs.release }}
     outputs:
+      registry-image-ready: ${{ steps.image-source.outputs.registry-image-ready }}
       registry-host: ${{ steps.tag.outputs.registry-host }}
       container-name: ${{ steps.tag.outputs.container-name }}
       port-mapping: ${{ steps.tag.outputs.port-mapping }}
@@ -358,7 +359,9 @@ jobs:
           echo "spring-profile=${PROFILE}" >> $GITHUB_OUTPUT
 
       - name: Login to Docker Registry
+        id: registry-auth
         run: |
+          REGISTRY_AVAILABLE=true
           REGISTRY="${{ steps.tag.outputs.registry-host }}"
           for attempt in 1 2 3; do
             echo "Docker login attempt $attempt/3..."
@@ -371,12 +374,16 @@ jobs:
               echo "Login failed, retrying in 30s..."
               sleep 30
             else
-              echo "All login attempts failed"
-              exit 1
+              echo "Registry unavailable after 3 attempts; deploy will build on VPS"
+              REGISTRY_AVAILABLE=false
             fi
           done
+          echo "available=${REGISTRY_AVAILABLE}" >> $GITHUB_OUTPUT
 
       - name: Build & Push Docker image
+        id: publish-image
+        if: steps.registry-auth.outputs.available == 'true'
+        continue-on-error: true
         run: |
           docker build -t ${{ steps.tag.outputs.image-tag }} .
           for attempt in 1 2 3; do
@@ -389,10 +396,20 @@ jobs:
               echo "Push failed, retrying in 30s..."
               sleep 30
             else
-              echo "All push attempts failed"
+              echo "Registry push unavailable after 3 attempts; deploy will build on VPS"
               exit 1
             fi
           done
+
+      - name: Resolve image source
+        id: image-source
+        run: |
+          REGISTRY_IMAGE_READY=false
+          if [ "${{ steps.registry-auth.outputs.available }}" = "true" ] && [ "${{ steps.publish-image.outcome }}" = "success" ]; then
+            REGISTRY_IMAGE_READY=true
+          fi
+          echo "registry-image-ready=${REGISTRY_IMAGE_READY}" >> $GITHUB_OUTPUT
+          echo "registry-image-ready=${REGISTRY_IMAGE_READY}"
 
   # ─────────────────────────────────────────
   # JOB 3 : Deploy via SSH + Health Check + Rollback
@@ -405,6 +422,16 @@ jobs:
     if: ${{ !inputs.release }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download JAR artifact
+        if: needs.docker.outputs.registry-image-ready != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: jar-${{ github.run_number }}
+          path: target/
+
       - name: Setup SSH key
         run: |
           mkdir -p ~/.ssh
@@ -412,10 +439,29 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null || true
 
+      - name: Upload remote build context
+        if: needs.docker.outputs.registry-image-ready != 'true'
+        env:
+          CONTAINER: ${{ needs.docker.outputs.container-name }}
+        run: |
+          REMOTE_BUILD_DIR="/tmp/${CONTAINER}-build"
+          test -f Dockerfile
+          test -f target/app.jar
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "rm -rf '${REMOTE_BUILD_DIR}' && mkdir -p '${REMOTE_BUILD_DIR}/target'"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            Dockerfile \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:"${REMOTE_BUILD_DIR}/Dockerfile"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            target/app.jar \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:"${REMOTE_BUILD_DIR}/target/app.jar"
+
       - name: Deploy container via SSH
         env:
           PROFILE: ${{ needs.docker.outputs.spring-profile }}
           REGISTRY: ${{ needs.docker.outputs.registry-host }}
+          REGISTRY_IMAGE_READY: ${{ needs.docker.outputs.registry-image-ready }}
           CONTAINER: ${{ needs.docker.outputs.container-name }}
           PORT: ${{ needs.docker.outputs.port-mapping }}
           APP_NAME: ${{ inputs.app-name }}
@@ -470,6 +516,7 @@ jobs:
             -o StrictHostKeyChecking=no \
             ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             PROFILE="$PROFILE" \
+            REGISTRY_IMAGE_READY="$REGISTRY_IMAGE_READY" \
             CONTAINER="$CONTAINER" \
             PORT="$PORT" \
             APP_NAME="$APP_NAME" \
@@ -485,6 +532,7 @@ jobs:
 
             APP_DIR="/home/ubuntu/pierre/app/${PROFILE}/${APP_NAME}"
             LOG_DIR="/opt/sfd/logs-${PROFILE}"
+            REMOTE_BUILD_DIR="/tmp/${CONTAINER}-build"
 
             echo "🚀 Deploying ${CONTAINER} (${IMAGE})..."
 
@@ -504,8 +552,15 @@ jobs:
               VOL_OPTS="-v ${APP_DIR}/upload:${UPLOAD_FOLDER} -v ${LOG_DIR}:/app/logs"
             fi
 
-            # Pull la nouvelle image
-            docker pull "${IMAGE}"
+            if [ "$REGISTRY_IMAGE_READY" = "true" ]; then
+              docker pull "${IMAGE}"
+            else
+              echo "📦 Registry unavailable, building ${IMAGE} directly on VPS..."
+              test -f "${REMOTE_BUILD_DIR}/Dockerfile"
+              test -f "${REMOTE_BUILD_DIR}/target/app.jar"
+              docker build -t "${IMAGE}" "${REMOTE_BUILD_DIR}"
+              rm -rf "${REMOTE_BUILD_DIR}"
+            fi
 
             # Sauvegarder l'ancienne image AVANT arrêt (comme Jenkins: DockerUtils.currentImage)
             OLD_IMAGE=$(docker inspect "${CONTAINER}" --format='{{.Config.Image}}' 2>/dev/null || echo "")
