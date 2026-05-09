@@ -460,7 +460,7 @@ jobs:
       - name: Deploy container via SSH
         env:
           PROFILE: ${{ needs.docker.outputs.spring-profile }}
-          REGISTRY: ${{ needs.docker.outputs.registry-host }}
+          REGISTRY_RAW: ${{ secrets.REGISTRY_URL }}
           REGISTRY_IMAGE_READY: ${{ needs.docker.outputs.registry-image-ready }}
           CONTAINER: ${{ needs.docker.outputs.container-name }}
           PORT: ${{ needs.docker.outputs.port-mapping }}
@@ -473,7 +473,11 @@ jobs:
           VOLUMES_TEMPLATE: ${{ inputs.volumes }}
           DOCKER_NETWORK_INPUT: ${{ inputs.docker-network }}
         run: |
-          # Reconstruct full image URL (avoids GitHub secret masking in outputs)
+          REGISTRY="${REGISTRY_RAW#https://}"
+          REGISTRY="${REGISTRY#http://}"
+          REGISTRY="${REGISTRY%/}"
+
+          # Reconstruct the image URL locally to avoid GitHub masking secret-derived outputs.
           if [ "$PROFILE" = "prod" ]; then
             IMAGE="${REGISTRY}/${APP_NAME}:latest"
             DEV_SUFFIX=""
